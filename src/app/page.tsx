@@ -424,7 +424,7 @@ export default function MarksheetProHome() {
         if (logo) doc.addImage(logo, 'PNG', TABLE_X - 2, logoY, 25, 25);
 
         doc.setFont("times", "bold");
-        doc.setFontSize(35);
+        doc.setFontSize(32);
         if (designNum === 2) {
           doc.setFillColor('#101010');
           doc.rect(TABLE_X, baseTopY + 4, TABLE_WIDTH, 14, 'F');

@@ -199,7 +199,7 @@ export default function TemplateEditor() {
                     <div className="p-8 pt-0 flex flex-col h-full mt-0">
                       <div className="text-center relative pb-2 pt-0 mt-[-3mm]">
                         <h1 
-                          className={`text-[37pt] font-black uppercase tracking-tight mb-2 leading-tight ${designNum === 2 ? '' : (previewStudent.schoolCode === "3" ? 'pl-[14mm]' : 'pl-[26mm]')} ${designNum === 2 ? 'bg-[#101010] text-white px-8 pt-3 pb-0 inline-block absolute left-1/2 -translate-x-1/2 w-[calc(100%-8mm)]' : ''}`}
+                          className={`text-[34pt] font-black uppercase tracking-tight mb-2 leading-tight ${designNum === 2 ? '' : (previewStudent.schoolCode === "3" ? 'pl-[14mm]' : 'pl-[26mm]')} ${designNum === 2 ? 'bg-[#101010] text-white px-8 pt-3 pb-0 inline-block absolute left-1/2 -translate-x-1/2 w-[calc(100%-8mm)]' : ''}`}
                         >
                           {schoolInfo.name}
                         </h1>

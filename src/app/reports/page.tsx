@@ -164,7 +164,7 @@ function ReportCard({ student }: { student: Student }) {
         <div className="absolute inset-4 border-[0.5pt] border-black pointer-events-none" />
         
         <div className="text-center relative pt-0 mt-[-3mm]">
-          <h1 className={`text-[37pt] font-black uppercase tracking-tight mb-2 leading-tight ${designNum === 2 ? '' : (student.schoolCode === "3" ? 'pl-[14mm]' : 'pl-[26mm]')} ${designNum === 2 ? 'bg-[#101010] text-white px-8 pt-3 pb-0 inline-block absolute left-1/2 -translate-x-1/2 w-[calc(100%-8mm)]' : ''}`}>
+          <h1 className={`text-[34pt] font-black uppercase tracking-tight mb-2 leading-tight ${designNum === 2 ? '' : (student.schoolCode === "3" ? 'pl-[14mm]' : 'pl-[26mm]')} ${designNum === 2 ? 'bg-[#101010] text-white px-8 pt-3 pb-0 inline-block absolute left-1/2 -translate-x-1/2 w-[calc(100%-8mm)]' : ''}`}>
             {schoolInfo.name}
           </h1>
           <div className={`text-[15pt] italic font-bold space-y-1 text-center pl-[8mm] ${designNum === 2 ? 'mt-[10mm]' : 'mt-[2mm]'}`}>
