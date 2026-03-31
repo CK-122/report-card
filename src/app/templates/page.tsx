@@ -3,7 +3,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { DEFAULT_TEMPLATE, Student, getMaxMarksPerTerm, MarksheetTemplate, SCHOOLS, Grade } from "@/lib/types";
+import { DEFAULT_TEMPLATE, Student, getMaxMarksPerTerm, getMaxTheoryMarks, getMaxPracticalMarks, MarksheetTemplate, SCHOOLS, Grade } from "@/lib/types";
 import { 
   Save, 
   ArrowUpDown,
@@ -32,15 +32,15 @@ const DEFAULT_PREVIEW_STUDENT: Student = {
   optionalSubjectCode: 1,
   address: 'STREET 35, LUCKNOW',
   grades: [
-    { subject: 'Drawing', term1: 27, term2: 29, term3: 47, term4: 43 },
     { subject: 'Hindi Written', term1: 30, term2: 32, term3: 26, term4: 36 },
     { subject: 'Hindi Oral', term1: 50, term2: 44, term3: 39, term4: 42 },
     { subject: 'English Written', term1: 39, term2: 34, term3: 33, term4: 30 },
     { subject: 'English Oral', term1: 31, term2: 27, term3: 46, term4: 49 },
     { subject: 'Math Written', term1: 43, term2: 41, term3: 36, term4: 40 },
     { subject: 'Math Oral', term1: 30, term2: 46, term3: 39, term4: 34 },
-    { subject: 'P.T.', term1: 43, term2: 32, term3: 50, term4: 39 },
-    { subject: 'Urdu', term1: 44, term2: 39, term3: 47, term4: 42 }
+    { subject: 'Urdu', term1: 44, term2: 39, term3: 47, term4: 42 },
+    { subject: 'Drawing', term1: 27, term2: 29, term3: 47, term4: 43 },
+    { subject: 'P.T.', term1: 43, term2: 32, term3: 50, term4: 39 }
   ],
   attendance: { totalDays: 200, presentDays: 168 }
 };
@@ -199,7 +199,7 @@ export default function TemplateEditor() {
                     <div className="p-8 pt-0 flex flex-col h-full mt-0">
                       <div className="text-center relative pb-2 pt-0 mt-[-3mm]">
                         <h1 
-                          className={`text-[34pt] font-black uppercase tracking-tight mb-2 leading-tight ${designNum === 2 ? '' : (previewStudent.schoolCode === "3" ? 'pl-[14mm]' : 'pl-[26mm]')} ${designNum === 2 ? 'bg-[#101010] text-white px-8 pt-3 pb-0 inline-block absolute left-1/2 -translate-x-1/2 w-[calc(100%-8mm)]' : ''}`}
+                          className={`text-[36pt] font-black uppercase tracking-tight mb-2 leading-tight ${designNum === 2 ? '' : (previewStudent.schoolCode === "3" ? 'pl-[14mm]' : 'pl-[26mm]')} ${designNum === 2 ? 'bg-[#101010] text-white px-8 pt-3 pb-0 inline-block absolute left-1/2 -translate-x-1/2 w-[calc(100%-8mm)]' : ''}`}
                         >
                           {schoolInfo.name}
                         </h1>
@@ -241,35 +241,35 @@ export default function TemplateEditor() {
                           <tbody className="font-bold">
                             <tr className="h-[10mm]">
                               <td className="pl-4 pr-2 whitespace-nowrap w-[20%]">Student Name:</td>
-                              <td className="w-[30%]">{previewStudent.name}</td>
+                              <td className="w-[30%]">{String(previewStudent.name).toUpperCase()}</td>
                               <td className="w-[5%]" />
                               <td className="pr-2 whitespace-nowrap w-[15%]">Class:</td>
-                              <td className="w-[30%]">{previewStudent.class}</td>
+                              <td className="w-[30%]">{String(previewStudent.class).toUpperCase()}</td>
                             </tr>
                             <tr className="h-[10mm]">
                               <td className="pl-4 pr-2 whitespace-nowrap">Father Name:</td>
-                              <td>{previewStudent.fathersName}</td>
+                              <td>{String(previewStudent.fathersName).toUpperCase()}</td>
                               <td />
                               <td className="pr-2 whitespace-nowrap">Roll No:</td>
-                              <td>{previewStudent.rollNo}</td>
+                              <td>{String(previewStudent.rollNo).toUpperCase()}</td>
                             </tr>
                             <tr className="h-[10mm]">
                               <td className="pl-4 pr-2 whitespace-nowrap">Mother Name:</td>
-                              <td>{previewStudent.mothersName}</td>
+                              <td>{String(previewStudent.mothersName).toUpperCase()}</td>
                               <td />
                               <td className="pr-2 whitespace-nowrap">DOB:</td>
                               <td>{formatDate(previewStudent.dob)}</td>
                             </tr>
                             <tr className="h-[10mm]">
                               <td className="pl-4 pr-2 whitespace-nowrap">SR No:</td>
-                              <td>{previewStudent.srNo}</td>
+                              <td>{String(previewStudent.srNo).toUpperCase()}</td>
                               <td />
                               <td className="pr-2 whitespace-nowrap">PEN No:</td>
-                              <td>{previewStudent.penNo || "N/A"}</td>
+                              <td>{String(previewStudent.penNo || "N/A").toUpperCase()}</td>
                             </tr>
                             <tr className="h-[10mm]">
                               <td className="pl-4 pr-2 whitespace-nowrap">Address:</td>
-                              <td colSpan={4} className="pr-4">{previewStudent.address?.toUpperCase() || "N/A"}</td>
+                              <td colSpan={4} className="pr-4">{String(previewStudent.address || "N/A").toUpperCase()}</td>
                             </tr>
                           </tbody>
                         </table>
@@ -283,7 +283,7 @@ export default function TemplateEditor() {
                               <th className="p-2 text-center w-[16%]">T2 ({getMaxMarksPerTerm(previewStudent.gradeLevel)})</th>
                               <th className="p-2 text-center w-[16%]">T3 ({getMaxMarksPerTerm(previewStudent.gradeLevel)})</th>
                               <th className="p-2 text-center w-[16%]">T4 ({getMaxMarksPerTerm(previewStudent.gradeLevel)})</th>
-                              <th className="p-2 text-center w-[13%]">Total</th>
+                              <th className="p-2 text-center w-[13%]">Total ({getMaxMarksPerTerm(previewStudent.gradeLevel) * 4})</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -405,9 +405,15 @@ export default function TemplateEditor() {
                       </div>
                       <div className="border border-black">
                         <div className={`border-b border-black py-2 text-center ${designNum === 2 ? 'bg-black text-white' : 'bg-gray-200'}`}>
-                          <h3 className="text-[16pt] font-black uppercase">School Rules & Regulations</h3>
+                          <h3 className="text-[16pt] font-black uppercase">Assessment Scheme & School Rules</h3>
                         </div>
-                        <ul className="p-6 space-y-4 text-[14pt] list-decimal list-inside">
+                        <ul className="p-4 space-y-3 text-[14pt] list-decimal list-inside">
+                          <li className="font-bold">
+                            {getMaxPracticalMarks(previewStudent.gradeLevel) > 0 
+                              ? `Assessment structure: Theory (${getMaxTheoryMarks(previewStudent.gradeLevel)}) + Practical (${getMaxPracticalMarks(previewStudent.gradeLevel)}) = ${getMaxMarksPerTerm(previewStudent.gradeLevel)} marks per term.`
+                              : `Each subject carries a maximum of ${getMaxMarksPerTerm(previewStudent.gradeLevel)} marks per term (Total ${getMaxMarksPerTerm(previewStudent.gradeLevel) * 4} Marks).`
+                            }
+                          </li>
                           <li className="font-bold">Students must maintain 75% attendance to appear in final exams.</li>
                           <li className="font-bold">Punctuality and discipline are mandatory for all students.</li>
                           <li className="font-bold">Parents are requested to attend Parent-Teacher Meetings regularly.</li>
@@ -415,10 +421,10 @@ export default function TemplateEditor() {
                           <li className="font-bold">Students must wear proper school uniform daily.</li>
                         </ul>
                       </div>
-                      <div className="absolute w-[calc(100%-64px)] flex justify-between items-end font-black text-[16pt] uppercase" style={{ bottom: `7mm`, left: '32px' }}>
-                        <div className="border-t-2 border-black pt-2 w-48 text-center">Teacher</div>
-                        <div className="border-t-2 border-black pt-2 w-48 text-center">Parent</div>
-                        <div className="border-t-2 border-black pt-2 w-48 text-center">Principal</div>
+                      <div className="absolute w-[calc(100%-64px)] flex justify-between items-end font-black text-[16pt] uppercase" style={{ bottom: `2mm`, left: '32px' }}>
+                        <div className="border-t-2 border-black pt-2 w-48 text-center text-[14pt]">Teacher's Signature</div>
+                        <div className="border-t-2 border-black pt-2 w-48 text-center text-[14pt]">Parent's Signature</div>
+                        <div className="border-t-2 border-black pt-2 w-48 text-center text-[14pt]">Principal's Signature</div>
                       </div>
                     </div>
                   )}

@@ -38,6 +38,44 @@ import { Label } from "@/components/ui/label";
 import jspdf from "jspdf";
 import Papa from "papaparse";
 
+const SUBJECT_ORDER = [
+  "hindi written",
+  "hindi oral",
+  "hindi",
+  "english written",
+  "english oral",
+  "english",
+  "mathematics",
+  "math written",
+  "math oral",
+  "math / h.s.c",
+  "math",
+  "science",
+  "social science",
+  "evs",
+  "computer",
+  "g.k.",
+  "urdu",
+  "sanskrit",
+  "poem",
+  "home science",
+  "h.sci",
+  "pustak kala",
+  "p. kala",
+  "craft",
+  "drawing"
+];
+
+const getSubjectPriority = (subjectName: string) => {
+  const lowerName = subjectName.toLowerCase();
+  for (let i = 0; i < SUBJECT_ORDER.length; i++) {
+    if (lowerName.includes(SUBJECT_ORDER[i])) {
+      return i;
+    }
+  }
+  return 999;
+};
+
 export default function MarksheetProHome() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
@@ -199,38 +237,38 @@ export default function MarksheetProHome() {
 
     if (['NUR', 'LKG', 'UKG'].includes(level)) {
       subjects = [
-        { name: 'Drawing', hasPractical: false },
         { name: 'Hindi Oral', hasPractical: false },
         { name: 'Hindi Written', hasPractical: false },
         { name: 'English Oral', hasPractical: false },
         { name: 'English Written', hasPractical: false },
         { name: 'Math Oral', hasPractical: false },
         { name: 'Math Written', hasPractical: false },
-        { name: 'Urdu / Poem', hasPractical: false }
+        { name: 'Urdu / Poem', hasPractical: false },
+        { name: 'Drawing', hasPractical: false }
       ];
     } else if (gradeNum >= 1 && gradeNum <= 5) {
       subjects = [
-        { name: 'Drawing', hasPractical: false },
-        { name: 'Urdu / Sanskrit', hasPractical: false },
-        { name: 'English', hasPractical: false },
-        { name: 'Computer', hasPractical: false },
-        { name: 'Craft', hasPractical: false },
-        { name: 'Mathematics', hasPractical: false },
         { name: 'Hindi', hasPractical: false },
+        { name: 'English', hasPractical: false },
+        { name: 'Mathematics', hasPractical: false },
         { name: 'EVS', hasPractical: false },
-        { name: 'G.K.', hasPractical: false }
+        { name: 'Computer', hasPractical: false },
+        { name: 'G.K.', hasPractical: false },
+        { name: 'Urdu / Sanskrit', hasPractical: false },
+        { name: 'Craft', hasPractical: false },
+        { name: 'Drawing', hasPractical: false }
       ];
     } else if (gradeNum >= 6 && gradeNum <= 8) {
       subjects = [
-        { name: 'Drawing', hasPractical: false },
-        { name: 'Computer', hasPractical: false },
-        { name: 'Urdu / Sanskrit', hasPractical: false },
         { name: 'Hindi', hasPractical: false },
         { name: 'English', hasPractical: false },
+        { name: 'Mathematics', hasPractical: false },
         { name: 'Science', hasPractical: false },
         { name: 'Social Science', hasPractical: false },
-        { name: 'Mathematics', hasPractical: false },
-        { name: 'H.Sci. / P. Kala', hasPractical: true }
+        { name: 'Computer', hasPractical: false },
+        { name: 'Urdu / Sanskrit', hasPractical: false },
+        { name: 'H.Sci. / P. Kala', hasPractical: true },
+        { name: 'Drawing', hasPractical: false }
       ];
     } else if (gradeNum >= 9) {
       subjects = [
@@ -265,10 +303,26 @@ export default function MarksheetProHome() {
     const fullHeaders = [...baseHeaders, ...dynamicHeaders];
     let csvContent = fullHeaders.join(",") + "\n";
 
+    const currentSchoolCode = selectedSchoolCode || "1";
+    
     for (let i = 1; i <= templateStudentCount; i++) {
       const rowParts: string[] = [
-        i.toString(), "", "", "", "", "", "", i.toString(), "", "", "1", templateGrade, "1", "", "",
-        "A", "A", "A", "A", "A"
+        i.toString(), // id
+        `Student ${i}`, // name
+        "Father Name", // fathersName
+        "Mother Name", // mothersName
+        "2010-01-01", // dob
+        "", // penNo
+        templateGrade, // class
+        i.toString(), // rollNo
+        `SR-${1000 + i}`, // srNo
+        "Address Line", // address
+        currentSchoolCode, // schoolCode
+        templateGrade, // gradeLevel
+        "1", // optionalCode
+        "", // attendance_total
+        "", // attendance_present
+        "A", "A", "A", "A", "A" // co-scholastic
       ];
 
       subjects.forEach((sub) => {
@@ -319,7 +373,15 @@ export default function MarksheetProHome() {
       students
         .filter(s => s.schoolCode === selectedSchoolCode)
         .map(s => s.class)
-    )).sort();
+    )).sort((a, b) => {
+      const order = ['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+      const idxA = order.indexOf(a);
+      const idxB = order.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
   }, [students, selectedSchoolCode]);
 
   const filteredStudents = useMemo(() => {
@@ -365,7 +427,7 @@ export default function MarksheetProHome() {
       }
       
       return { ...g, subjectName };
-    });
+    }).sort((a, b) => getSubjectPriority(a.subjectName) - getSubjectPriority(b.subjectName));
   };
 
   const generateVectorPDF = async (designNum: number) => {
@@ -389,6 +451,21 @@ export default function MarksheetProHome() {
 
       for (let i = 0; i < filteredStudents.length; i++) {
         const student = filteredStudents[i];
+        
+        // Calculate ranks for the entire class
+        const allStudentTotals = filteredStudents.map(s => {
+          const gs = getFilteredGrades(s);
+          return gs.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+        });
+        const sortedTotals = [...allStudentTotals].sort((a, b) => b - a);
+        const currentTotal = allStudentTotals[i];
+        const rank = sortedTotals.indexOf(currentTotal) + 1;
+        const getOrdinal = (n: number) => {
+          const s = ["th", "st", "nd", "rd"];
+          const v = n % 100;
+          return n + (s[(v - 20) % 10] || s[v] || s[0]);
+        };
+
         const studentGrades = getFilteredGrades(student);
         const termMax = getMaxMarksPerTerm(student.gradeLevel);
         const totalMaxPerSubject = termMax * 4;
@@ -420,13 +497,13 @@ export default function MarksheetProHome() {
         doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
 
         const baseTopY = currentTemplate.offsets.headerY - 3;
-        const logoY = designNum === 2 ? baseTopY + 15 : baseTopY + 8;
-        if (logo) doc.addImage(logo, 'PNG', TABLE_X - 2, logoY, 25, 25);
+        const logoY = designNum === 2 ? baseTopY + 18 : baseTopY + 11;
+        if (logo) doc.addImage(logo, 'PNG', TABLE_X, logoY, 21, 21);
 
         doc.setFont("times", "bold");
-        doc.setFontSize(32);
+        doc.setFontSize(34);
         if (designNum === 2) {
-          doc.setFillColor('#101010');
+          doc.setFillColor('#000000');
           doc.rect(TABLE_X, baseTopY + 4, TABLE_WIDTH, 14, 'F');
           doc.setTextColor('#FFFFFF');
         } else {
@@ -442,10 +519,10 @@ export default function MarksheetProHome() {
         doc.text(schoolInfo.tagline, secondaryInfoX, baseTopY + 23, { align: "center" });
         doc.text(schoolInfo.address, secondaryInfoX, baseTopY + 29, { align: "center" });
         doc.text(`Phone no : ${schoolInfo.contact}  |  Email : ${schoolInfo.email}`, secondaryInfoX, baseTopY + 35, { align: "center" });
-        doc.line(TABLE_X, baseTopY + 37, TABLE_X + TABLE_WIDTH, baseTopY + 37);
+        // Removed horizontal line under header as requested
          
         const headingY = baseTopY + 37 + 2; // Shifted 2mm down from line position (Line is now at +37)
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC');
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
         doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
         doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT);
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
@@ -455,7 +532,7 @@ export default function MarksheetProHome() {
         doc.setTextColor('#000000');
         let currentY = headingY + HEADER_HEIGHT + GAP_MM;
         
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC');
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
         doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
         // No separate rectangle here, we'll draw one around the whole thing later
@@ -474,10 +551,10 @@ export default function MarksheetProHome() {
           return dateStr;
         };
         const info = [
-          { l: "Student Name:", v: student.name, l2: "Class:", v2: student.class },
-          { l: "Father's Name:", v: student.fathersName, l2: "Roll No:", v2: student.rollNo },
-          { l: "Mother's Name:", v: student.mothersName, l2: "DOB:", v2: formatDate(student.dob) },
-          { l: "SR No:", v: student.srNo, l2: "PEN No:", v2: student.penNo || "N/A" }
+          { l: "Student Name:", v: String(student.name).toUpperCase(), l2: "Class:", v2: String(student.class).toUpperCase() },
+          { l: "Father's Name:", v: String(student.fathersName).toUpperCase(), l2: "Roll No:", v2: String(student.rollNo).toUpperCase() },
+          { l: "Mother's Name:", v: String(student.mothersName).toUpperCase(), l2: "DOB:", v2: formatDate(student.dob) },
+          { l: "SR No:", v: String(student.srNo).toUpperCase(), l2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? "PEN No:" : "", v2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? String(student.penNo || "N/A").toUpperCase() : "" }
         ];
         info.forEach(row => {
           doc.setFont("times", "bold"); doc.text(row.l, col1, currentY);
@@ -499,7 +576,7 @@ export default function MarksheetProHome() {
 
         currentY += GAP_MM;
         const subCol = TABLE_WIDTH * 0.23; const mCol = TABLE_WIDTH * 0.16;
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC');
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
         doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
         doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT);
@@ -510,7 +587,7 @@ export default function MarksheetProHome() {
         const maxMarksPerTerm = getMaxMarksPerTerm(student.gradeLevel);
         const labelText = `(${maxMarksPerTerm})`;
         ['T1','T2','T3','T4'].forEach((t, i) => doc.text(`${t} ${labelText}`, TABLE_X + subCol + (mCol*(i+0.5)), currentY + 7, { align: "center" }));
-        doc.text("Total", TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 7, { align: "center" });
+        doc.text(`Total (${maxMarksPerTerm * 4})`, TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 7, { align: "center" });
 
         doc.setTextColor('#000000');
         currentY += HEADER_HEIGHT;
@@ -550,7 +627,7 @@ export default function MarksheetProHome() {
         currentY += ROW_HEIGHT;
 
         currentY += GAP_MM;
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC');
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
         doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
         doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT + ROW_HEIGHT);
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
@@ -558,17 +635,17 @@ export default function MarksheetProHome() {
         
         [1,2,3].forEach(i => doc.line(TABLE_X + (sumW*i), currentY + HEADER_HEIGHT, TABLE_X + (sumW*i), currentY + HEADER_HEIGHT + ROW_HEIGHT));
 
-        ["OBTAINED", "PERCENTAGE", "GRADE", "RESULT"].forEach((h, i) => doc.text(h, TABLE_X + (sumW*(i+0.5)), currentY + 7, { align: "center" }));
+        ["OBTAINED", "PERCENTAGE", "GRADE", "CLASS RANK"].forEach((h, i) => doc.text(h, TABLE_X + (sumW*(i+0.5)), currentY + 7, { align: "center" }));
         doc.setTextColor('#000000');
         doc.text(`${totalObtained}/${totalPossible}`, TABLE_X + (sumW*0.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
         doc.text(`${percentage}%`, TABLE_X + (sumW*1.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
         doc.text(finalGrade, TABLE_X + (sumW*2.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
-        doc.text("PASS", TABLE_X + (sumW*3.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
+        doc.text(getOrdinal(rank), TABLE_X + (sumW*3.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
 
         currentY += HEADER_HEIGHT + ROW_HEIGHT + GAP_MM;
         const halfW = (TABLE_WIDTH / 2) - 3;
         
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
         doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 4));
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
         doc.line(TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT, TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 4));
@@ -587,7 +664,7 @@ export default function MarksheetProHome() {
         });
 
         const attX = TABLE_X + halfW + 6;
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC'); doc.rect(attX, currentY, halfW, HEADER_HEIGHT, 'F');
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(attX, currentY, halfW, HEADER_HEIGHT, 'F');
         doc.rect(attX, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 3));
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
         doc.line(attX + (halfW * 0.7), currentY + HEADER_HEIGHT, attX + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 3));
@@ -620,8 +697,30 @@ export default function MarksheetProHome() {
         doc.setLineWidth(1.2); doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
         doc.setLineWidth(0.3); doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
 
-        let backY = 20;
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+        let backY = 10;
+        
+        // Result & Promotion Section (Now at the top of page 2)
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); 
+        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 25);
+        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+        doc.setFont("times", "bold"); 
+        doc.text("RESULT & PROMOTION", WIDTH / 2, backY + 7, { align: "center" });
+        
+        doc.setTextColor('#000000');
+        doc.setFontSize(16);
+        const nextClass = (cls: string) => {
+          const order = ['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+          const idx = order.indexOf(cls.toUpperCase());
+          return (idx !== -1 && idx < order.length - 1) ? order[idx + 1] : "__________";
+        };
+        doc.text(`Result:  PASS`, TABLE_X + 10, backY + HEADER_HEIGHT + 10);
+        doc.text(`Promoted to Class:  ${nextClass(student.class)}`, TABLE_X + 10, backY + HEADER_HEIGHT + 18);
+        
+        backY += HEADER_HEIGHT + 25 + (GAP_MM * 2);
+
+        // GRADING SYSTEM
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
         doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + (ROW_HEIGHT * 5));
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
         
@@ -631,7 +730,7 @@ export default function MarksheetProHome() {
         doc.setFontSize(16); doc.setFont("times", "bold");
         doc.text("GRADING SYSTEM", WIDTH / 2, backY + 7, { align: "center" });
         doc.setTextColor('#000000');
-        backY += HEADER_HEIGHT;
+        const systemY = backY + HEADER_HEIGHT;
         const gradingRows = [
           { r: "91-100", g: "A+", rm: "Outstanding" },
           { r: "81-90", g: "A", rm: "Excellent" },
@@ -639,38 +738,69 @@ export default function MarksheetProHome() {
           { r: "61-70", g: "C", rm: "Good" },
           { r: "Below 60", g: "D", rm: "Needs Improvement" }
         ];
-        gradingRows.forEach(g => {
-          doc.setFont("times", "bold"); doc.text(g.r, TABLE_X + 10, backY + 6);
-          doc.setFont("times", "bold"); doc.text(g.g, TABLE_X + (TABLE_WIDTH*0.5), backY + 6, { align: "center" });
-          doc.setFont("times", "bolditalic"); doc.text(g.rm, TABLE_X + TABLE_WIDTH - 10, backY + 6, { align: "right" });
-          doc.line(TABLE_X, backY + ROW_HEIGHT, TABLE_X + TABLE_WIDTH, backY + ROW_HEIGHT);
-          backY += ROW_HEIGHT;
+        gradingRows.forEach((g, idx) => {
+          const y = systemY + (ROW_HEIGHT * idx);
+          doc.setFont("times", "bold"); doc.text(g.r, TABLE_X + 10, y + 6);
+          doc.setFont("times", "bold"); doc.text(g.g, TABLE_X + (TABLE_WIDTH*0.5), y + 6, { align: "center" });
+          doc.setFont("times", "bolditalic"); doc.text(g.rm, TABLE_X + TABLE_WIDTH - 10, y + 6, { align: "right" });
+          doc.line(TABLE_X, y + ROW_HEIGHT, TABLE_X + TABLE_WIDTH, y + ROW_HEIGHT);
         });
+        backY += HEADER_HEIGHT + (ROW_HEIGHT * 5);
 
         backY += GAP_MM * 2;
-        doc.setFillColor(designNum === 2 ? '#1E1E1E' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 50);
+        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 65);
         doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.setFont("times", "bold"); doc.text("SCHOOL RULES & REGULATIONS", WIDTH / 2, backY + 7, { align: "center" });
+        doc.setFont("times", "bold"); doc.text("ASSESSMENT SCHEME & SCHOOL RULES", WIDTH / 2, backY + 7, { align: "center" });
         doc.setTextColor('#000000');
-        const rules = [
-          "1. Students must maintain 75% attendance to appear in final exams.",
-          "2. Punctuality and discipline are mandatory for all students.",
-          "3. Parents are requested to attend Parent-Teacher Meetings regularly.",
-          "4. Report card should be signed and returned within 3 days.",
-          "5. Students must wear proper school uniform daily."
-        ];
-        doc.setFontSize(13); doc.setFont("times", "bold");
-        rules.forEach((rule, idx) => doc.text(rule, TABLE_X + 5, backY + HEADER_HEIGHT + 10 + (idx * 8)));
-
-        const signY = HEIGHT - MARGIN - 25;
-        if (teacherSign) doc.addImage(teacherSign, 'PNG', TABLE_X + 10, signY - 20, 40, 15);
-        if (principalSign) doc.addImage(principalSign, 'PNG', TABLE_X + TABLE_WIDTH - 50, signY - 20, 40, 15);
+        const _termMax = getMaxMarksPerTerm(student.gradeLevel);
+        const theoryMax = getMaxTheoryMarks(student.gradeLevel);
+        const practicalMax = getMaxPracticalMarks(student.gradeLevel);
         
-        doc.setFontSize(16); doc.setFont("times", "bold");
-        doc.line(TABLE_X + 5, signY, TABLE_X + 55, signY); doc.text("Teacher", TABLE_X + 30, signY + 7, { align: "center" });
-        doc.line(WIDTH/2 - 25, signY, WIDTH/2 + 25, signY); doc.text("Parent", WIDTH/2, signY + 7, { align: "center" });
-        doc.line(TABLE_X + TABLE_WIDTH - 55, signY, TABLE_X + TABLE_WIDTH - 5, signY); doc.text("Principal", TABLE_X + TABLE_WIDTH - 30, signY + 7, { align: "center" });
+        let markingScheme = `1. Each subject carries a maximum of ${_termMax} marks per term (Total ${_termMax * 4} Marks).`;
+        if (practicalMax > 0) {
+          markingScheme = `1. Assessment structure: Theory (${theoryMax}) + Practical (${practicalMax}) = ${_termMax} marks per term.`;
+        }
+
+        const rulesList = [
+          markingScheme,
+          "2. Students must maintain 75% attendance to appear in final exams.",
+          "3. Punctuality and discipline are mandatory for all students.",
+          "4. Parents are requested to attend Parent-Teacher Meetings regularly.",
+          "5. Report card should be signed and returned within 3 days.",
+          "6. Students must wear proper school uniform daily.",
+          "7. Report card is valid only with the Principal's Signature and School Stamp."
+        ];
+        doc.setFontSize(14); doc.setFont("times", "bold");
+        rulesList.forEach((rule, idx) => doc.text(rule, TABLE_X + 5, backY + HEADER_HEIGHT + 10 + (idx * 8)));
+
+        const signY = HEIGHT - MARGIN - 35; // Moved up slightly to fit boxes
+        const slotW = (TABLE_WIDTH / 3) - 4;
+        const slots = [
+          { l: "Teacher's Signature", x: TABLE_X, img: teacherSign },
+          { l: "Parent's Signature", x: TABLE_X + slotW + 6, img: null },
+          { l: "Principal's Signature", x: TABLE_X + (slotW * 2) + 12, img: principalSign }
+        ];
+
+        slots.forEach(slot => {
+          // Slot Header
+          doc.setFillColor(designNum === 2 ? '#000000' : '#E0E0E0');
+          doc.rect(slot.x, signY, slotW, 6, 'F');
+          doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+          doc.setFontSize(14); doc.setFont("times", "bold");
+          doc.text(slot.l, slot.x + slotW/2, signY + 4, { align: "center" });
+          
+          // Slot Box
+          doc.setDrawColor('#000000');
+          doc.rect(slot.x, signY, slotW, 25);
+          
+          // Signature image if exists
+          if (slot.img) {
+            doc.addImage(slot.img, 'PNG', slot.x + 5, signY + 8, slotW - 10, 14);
+          }
+        });
+        
+        doc.setTextColor('#000000'); // Reset text color
       }
 
       doc.save(`${schoolInfo.name}_Reports.pdf`);
@@ -708,7 +838,7 @@ export default function MarksheetProHome() {
             </Button>
             
             <div className="flex justify-center">
-              <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
+              <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen} modal={false}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="sm" className="text-[10px] uppercase font-bold text-muted-foreground hover:text-primary gap-1">
                     <FileSpreadsheet className="size-3" />
