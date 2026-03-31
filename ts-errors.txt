@@ -1,0 +1,15 @@
+﻿src/app/page.tsx(408,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+  Type 'number' is not assignable to type 'string'.
+src/app/page.tsx(417,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/app/page.tsx(447,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+  Type 'number' is not assignable to type 'string'.
+src/app/page.tsx(485,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/app/page.tsx(497,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+  Type 'number' is not assignable to type 'string'.
+src/app/page.tsx(515,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/app/page.tsx(529,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/app/page.tsx(561,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/app/page.tsx(586,26): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/components/ui/calendar.tsx(57,9): error TS2353: Object literal may only specify known properties, and 'IconLeft' does not exist in type 'Partial<CustomComponents>'.
+src/components/ui/calendar.tsx(57,22): error TS7031: Binding element 'className' implicitly has an 'any' type.
+src/components/ui/calendar.tsx(60,23): error TS7031: Binding element 'className' implicitly has an 'any' type.
