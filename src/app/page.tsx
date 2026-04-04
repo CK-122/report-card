@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import jspdf from "jspdf";
 import Papa from "papaparse";
+import JSZip from "jszip";
 
 const SUBJECT_ORDER = [
   "hindi written",
@@ -436,374 +437,391 @@ export default function MarksheetProHome() {
     await new Promise(resolve => setTimeout(resolve, 800));
 
     const schoolInfo = SCHOOLS[selectedSchoolCode];
-    
-    try {
-      const doc = new jspdf("p", "mm", "a4");
-      const MARGIN = 4;
-      const WIDTH = 210;
-      const HEIGHT = 297;
-      const CONTENT_WIDTH = WIDTH - (MARGIN * 2);
-      const TABLE_WIDTH = CONTENT_WIDTH - 10;
-      const TABLE_X = MARGIN + 5;
-      const ROW_HEIGHT = 8;
-      const HEADER_HEIGHT = 10;
-      const GAP_MM = 6; 
+    const MARGIN = 4;
+    const WIDTH = 210;
+    const HEIGHT = 297;
+    const CONTENT_WIDTH = WIDTH - (MARGIN * 2);
+    const TABLE_WIDTH = CONTENT_WIDTH - 10;
+    const TABLE_X = MARGIN + 5;
+    const ROW_HEIGHT = 8;
+    const HEADER_HEIGHT = 10;
+    const GAP_MM = 6;
 
-      for (let i = 0; i < filteredStudents.length; i++) {
-        const student = filteredStudents[i];
-        
-        // Calculate ranks for the entire class
-        const allStudentTotals = filteredStudents.map(s => {
-          const gs = getFilteredGrades(s);
-          return gs.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
-        });
-        const sortedTotals = [...allStudentTotals].sort((a, b) => b - a);
-        const currentTotal = allStudentTotals[i];
-        const rank = sortedTotals.indexOf(currentTotal) + 1;
-        const getOrdinal = (n: number) => {
-          const s = ["th", "st", "nd", "rd"];
-          const v = n % 100;
-          return n + (s[(v - 20) % 10] || s[v] || s[0]);
-        };
-
-        const studentGrades = getFilteredGrades(student);
-        const termMax = getMaxMarksPerTerm(student.gradeLevel);
-        const totalMaxPerSubject = termMax * 4;
-        const totalObtained = studentGrades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
-        const totalPossible = studentGrades.length * totalMaxPerSubject;
-        const percentage = parseFloat(((totalObtained / totalPossible) * 100).toFixed(2));
-        
-        const finalGrade = percentage >= 91 ? "A+" : 
-                         percentage >= 81 ? "A" : 
-                         percentage >= 71 ? "B" : 
-                         percentage >= 61 ? "C" : "D";
-
-        if (i > 0) doc.addPage();
-        
-        if (logo) {
-          doc.saveGraphicsState();
-          try {
-            // @ts-ignore
-            const gstate = new doc.GState({ opacity: 0.1 });
-            doc.setGState(gstate);
-          } catch (e) {}
-          doc.addImage(logo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
-          doc.restoreGraphicsState();
+    const drawSecurityPattern = (doc: jspdf) => {
+      doc.setFillColor('#E8E8E8');
+      for (let x = MARGIN + 5; x < CONTENT_WIDTH + MARGIN - 5; x += 4) {
+        for (let y = MARGIN + 5; y < HEIGHT - MARGIN - 5; y += 4) {
+          doc.circle(x, y, 0.12, 'F');
         }
+      }
+    };
 
-        doc.setLineWidth(1.2);
-        doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
-        doc.setLineWidth(0.3);
-        doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+    const drawFrontPage = (doc: jspdf, student: Student, rank: number) => {
+      const getOrdinal = (n: number) => {
+        const s = ["th", "st", "nd", "rd"];
+        const v = n % 100;
+        return n + (s[(v - 20) % 10] || s[v] || s[0]);
+      };
 
-        const baseTopY = currentTemplate.offsets.headerY - 3;
-        const logoY = designNum === 2 ? baseTopY + 18 : baseTopY + 11;
-        if (logo) doc.addImage(logo, 'PNG', TABLE_X, logoY, 21, 21);
+      const studentGrades = getFilteredGrades(student);
+      const termMax = getMaxMarksPerTerm(student.gradeLevel);
+      const totalMaxPerSubject = termMax * 4;
+      const totalObtained = studentGrades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+      const totalPossible = studentGrades.length * totalMaxPerSubject;
+      const percentage = parseFloat(((totalObtained / totalPossible) * 100).toFixed(2));
+      
+      const finalGrade = percentage >= 91 ? "A+" : 
+                       percentage >= 81 ? "A" : 
+                       percentage >= 71 ? "B" : 
+                       percentage >= 61 ? "C" : "D";
 
-        doc.setFont("times", "bold");
-        doc.setFontSize(34);
-        if (designNum === 2) {
-          doc.setFillColor('#000000');
-          doc.rect(TABLE_X, baseTopY + 4, TABLE_WIDTH, 14, 'F');
-          doc.setTextColor('#FFFFFF');
-        } else {
-          doc.setTextColor('#000000');
-        }
-        const schoolNameX = designNum === 2 ? TABLE_X + (TABLE_WIDTH / 2) : (selectedSchoolCode === "3" ? (WIDTH / 2) + 7 : (WIDTH / 2) + 13);
-        doc.text(schoolInfo.name, schoolNameX, baseTopY + 15, { align: "center" });
-        
-        doc.setTextColor('#000000');
-        doc.setFont("times", "bolditalic");
-        doc.setFontSize(15);
-        const secondaryInfoX = (WIDTH / 2) + 4;
-        doc.text(schoolInfo.tagline, secondaryInfoX, baseTopY + 23, { align: "center" });
-        doc.text(schoolInfo.address, secondaryInfoX, baseTopY + 29, { align: "center" });
-        doc.text(`Phone no : ${schoolInfo.contact}  |  Email : ${schoolInfo.email}`, secondaryInfoX, baseTopY + 35, { align: "center" });
-        // Removed horizontal line under header as requested
-         
-        const headingY = baseTopY + 37 + 2; // Shifted 2mm down from line position (Line is now at +37)
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
-        doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT);
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.setFontSize(20);
-        doc.text("PROGRESS REPORT CARD (2025-26)", WIDTH / 2, headingY + 7, { align: "center" });
-
-        doc.setTextColor('#000000');
-        let currentY = headingY + HEADER_HEIGHT + GAP_MM;
-        
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        // No separate rectangle here, we'll draw one around the whole thing later
-        doc.setFontSize(16); doc.setFont("times", "bold");
-        doc.text("STUDENT PROFILE", WIDTH / 2, currentY + 7, { align: "center" });
-        doc.setTextColor('#000000');
-        
-        currentY += HEADER_HEIGHT + 9;
-        const col1 = TABLE_X + 2; const col2 = col1 + 42;
-        const col4 = TABLE_X + 115; const col5 = col4 + 25;
-        doc.setFontSize(14);
-        const formatDate = (dateStr: string) => {
-          if (!dateStr || dateStr === "N/A") return "N/A";
-          const parts = dateStr.split('-');
-          if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
-          return dateStr;
-        };
-        const info = [
-          { l: "Student Name:", v: String(student.name).toUpperCase(), l2: "Class:", v2: String(student.class).toUpperCase() },
-          { l: "Father's Name:", v: String(student.fathersName).toUpperCase(), l2: "Roll No:", v2: String(student.rollNo).toUpperCase() },
-          { l: "Mother's Name:", v: String(student.mothersName).toUpperCase(), l2: "DOB:", v2: formatDate(student.dob) },
-          { l: "SR No:", v: String(student.srNo).toUpperCase(), l2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? "PEN No:" : "", v2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? String(student.penNo || "N/A").toUpperCase() : "" }
-        ];
-        info.forEach(row => {
-          doc.setFont("times", "bold"); doc.text(row.l, col1, currentY);
-          doc.setFont("times", "bold"); doc.text(row.v, col2, currentY);
-          doc.setFont("times", "bold"); doc.text(row.l2, col4, currentY);
-          doc.setFont("times", "bold"); doc.text(row.v2, col5, currentY);
-          currentY += 9;
-        });
-
-        doc.setFont("times", "bold"); doc.text("Address:", col1, currentY);
-        doc.setFont("times", "bold"); doc.text(student.address?.toUpperCase() || "N/A", col2, currentY);
-        
-        let startProfileY = currentY - (9 * 4) - 9 - HEADER_HEIGHT; 
-        let profileTotalHeight = currentY - startProfileY + 4;
-        doc.rect(TABLE_X, startProfileY, TABLE_WIDTH, profileTotalHeight);
-        
-        // Removed horizontal lines between data rows for a cleaner look
-        currentY += 6;
-
-        currentY += GAP_MM;
-        const subCol = TABLE_WIDTH * 0.23; const mCol = TABLE_WIDTH * 0.16;
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT);
-        
-        // Removed vertical lines in the subjects header
-
-        doc.text("Subjects", TABLE_X + 5, currentY + 7);
-        const maxMarksPerTerm = getMaxMarksPerTerm(student.gradeLevel);
-        const labelText = `(${maxMarksPerTerm})`;
-        ['T1','T2','T3','T4'].forEach((t, i) => doc.text(`${t} ${labelText}`, TABLE_X + subCol + (mCol*(i+0.5)), currentY + 7, { align: "center" }));
-        doc.text(`Total (${maxMarksPerTerm * 4})`, TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 7, { align: "center" });
-
-        doc.setTextColor('#000000');
-        currentY += HEADER_HEIGHT;
-        
-        let t1Sum = 0, t2Sum = 0, t3Sum = 0, t4Sum = 0;
-
-        studentGrades.forEach(g => {
-          t1Sum += g.term1; t2Sum += g.term2; t3Sum += g.term3; t4Sum += g.term4;
-          doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
-          
-          doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
-          [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
-
-          doc.setFontSize(14); doc.text((g as any).subjectName, TABLE_X + 5, currentY + 6);
-          doc.setFontSize(13);
-          const terms = ['term1', 'term2', 'term3', 'term4'];
-          terms.forEach((t, i) => {
-            const val = g.details?.[t as keyof typeof g.details];
-            const mark = (val && val.practical > 0) ? `${val.theory}(T) + ${val.practical} (P)` : (g as any)[t].toString();
-            doc.text(mark, TABLE_X + subCol + (mCol*(i+0.5)), currentY + 6, { align: "center" });
-          });
-          doc.setFont("times", "bold");
-          doc.text((g.term1 + g.term2 + g.term3 + g.term4).toString(), TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 6, { align: "center" });
-          currentY += ROW_HEIGHT; doc.setFont("times", "bold");
-        });
-
-        doc.setFont("times", "bold");
-        doc.setFillColor('#F5F5F5');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT, 'F');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
-        doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
-        [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
-        
-        doc.text("TOTAL MARKS", TABLE_X + 5, currentY + 6);
-        [t1Sum, t2Sum, t3Sum, t4Sum].forEach((sum, i) => doc.text(sum.toString(), TABLE_X + subCol + (mCol*(i+0.5)), currentY + 6, { align: "center" }));
-        doc.text(totalObtained.toString(), TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 6, { align: "center" });
-        currentY += ROW_HEIGHT;
-
-        currentY += GAP_MM;
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT + ROW_HEIGHT);
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        const sumW = TABLE_WIDTH / 4;
-        
-        [1,2,3].forEach(i => doc.line(TABLE_X + (sumW*i), currentY + HEADER_HEIGHT, TABLE_X + (sumW*i), currentY + HEADER_HEIGHT + ROW_HEIGHT));
-
-        ["OBTAINED", "PERCENTAGE", "GRADE", "CLASS RANK"].forEach((h, i) => doc.text(h, TABLE_X + (sumW*(i+0.5)), currentY + 7, { align: "center" }));
-        doc.setTextColor('#000000');
-        doc.text(`${totalObtained}/${totalPossible}`, TABLE_X + (sumW*0.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
-        doc.text(`${percentage}%`, TABLE_X + (sumW*1.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
-        doc.text(finalGrade, TABLE_X + (sumW*2.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
-        doc.text(getOrdinal(rank), TABLE_X + (sumW*3.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
-
-        currentY += HEADER_HEIGHT + ROW_HEIGHT + GAP_MM;
-        const halfW = (TABLE_WIDTH / 2) - 3;
-        
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 4));
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.line(TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT, TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 4));
-
-        doc.setFont("times", "bold"); doc.text("CO-SCHOLASTIC", TABLE_X + halfW/2, currentY + 7, { align: "center" });
-        doc.setTextColor('#000000');
-        const activities = ["P.T.", "Discipline", "Art & Craft", "General Activity"];
-        const csData = student.coScholastic || {};
-        const values = [csData.pt, csData.discipline, csData.art, csData.yoga];
-
-        activities.forEach((act, idx) => {
-          const y = currentY + HEADER_HEIGHT + (ROW_HEIGHT * idx);
-          doc.setFont("times", "bold"); doc.text(act, TABLE_X + 2, y + 6);
-          doc.setFont("times", "bold"); doc.text(values[idx] || "A", TABLE_X + halfW - 5, y + 6, { align: "right" });
-          doc.line(TABLE_X, y + ROW_HEIGHT, TABLE_X + halfW, y + ROW_HEIGHT);
-        });
-
-        const attX = TABLE_X + halfW + 6;
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(attX, currentY, halfW, HEADER_HEIGHT, 'F');
-        doc.rect(attX, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 3));
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.line(attX + (halfW * 0.7), currentY + HEADER_HEIGHT, attX + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 3));
-
-        doc.setFont("times", "bold"); doc.text("ATTENDANCE", attX + halfW/2, currentY + 7, { align: "center" });
-        doc.setTextColor('#000000');
-        const attData = [
-          { l: "Total Days", v: student.attendance?.totalDays || 0 },
-          { l: "Present Days", v: student.attendance?.presentDays || 0 },
-          { l: "Attendance %", v: `${((student.attendance?.presentDays || 0) / (student.attendance?.totalDays || 1) * 100).toFixed(1)}%` }
-        ];
-        attData.forEach((row, idx) => {
-          const y = currentY + HEADER_HEIGHT + (ROW_HEIGHT * idx);
-          doc.setFont("times", "bold"); doc.text(row.l, attX + 2, y + 6);
-          doc.setFont("times", "bold"); doc.text(row.v.toString(), attX + halfW - 5, y + 6, { align: "right" });
-          if (idx < 2) doc.line(attX, y + ROW_HEIGHT, attX + halfW, y + ROW_HEIGHT);
-        });
-
-        doc.addPage();
-        if (logo) {
-          doc.saveGraphicsState();
-          try {
-            // @ts-ignore
-            const gstate = new doc.GState({ opacity: 0.1 });
-            doc.setGState(gstate);
-          } catch (e) {}
-          doc.addImage(logo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
-          doc.restoreGraphicsState();
-        }
-        doc.setLineWidth(1.2); doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
-        doc.setLineWidth(0.3); doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
-
-        let backY = 10;
-        
-        // Result & Promotion Section (Now at the top of page 2)
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); 
-        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 25);
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.setFont("times", "bold"); 
-        doc.text("RESULT & PROMOTION", WIDTH / 2, backY + 7, { align: "center" });
-        
-        doc.setTextColor('#000000');
-        doc.setFontSize(16);
-        const nextClass = (cls: string) => {
-          const order = ['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
-          const idx = order.indexOf(cls.toUpperCase());
-          return (idx !== -1 && idx < order.length - 1) ? order[idx + 1] : "__________";
-        };
-        doc.text(`Result:  PASS`, TABLE_X + 10, backY + HEADER_HEIGHT + 10);
-        doc.text(`Promoted to Class:  ${nextClass(student.class)}`, TABLE_X + 10, backY + HEADER_HEIGHT + 18);
-        
-        backY += HEADER_HEIGHT + 25 + (GAP_MM * 2);
-
-        // GRADING SYSTEM
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + (ROW_HEIGHT * 5));
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        
-        doc.line(TABLE_X + (TABLE_WIDTH * 0.35), backY + HEADER_HEIGHT, TABLE_X + (TABLE_WIDTH * 0.35), backY + HEADER_HEIGHT + (ROW_HEIGHT * 5));
-        doc.line(TABLE_X + (TABLE_WIDTH * 0.65), backY + HEADER_HEIGHT, TABLE_X + (TABLE_WIDTH * 0.65), backY + HEADER_HEIGHT + (ROW_HEIGHT * 5));
-
-        doc.setFontSize(16); doc.setFont("times", "bold");
-        doc.text("GRADING SYSTEM", WIDTH / 2, backY + 7, { align: "center" });
-        doc.setTextColor('#000000');
-        const systemY = backY + HEADER_HEIGHT;
-        const gradingRows = [
-          { r: "91-100", g: "A+", rm: "Outstanding" },
-          { r: "81-90", g: "A", rm: "Excellent" },
-          { r: "71-80", g: "B", rm: "Very Good" },
-          { r: "61-70", g: "C", rm: "Good" },
-          { r: "Below 60", g: "D", rm: "Needs Improvement" }
-        ];
-        gradingRows.forEach((g, idx) => {
-          const y = systemY + (ROW_HEIGHT * idx);
-          doc.setFont("times", "bold"); doc.text(g.r, TABLE_X + 10, y + 6);
-          doc.setFont("times", "bold"); doc.text(g.g, TABLE_X + (TABLE_WIDTH*0.5), y + 6, { align: "center" });
-          doc.setFont("times", "bolditalic"); doc.text(g.rm, TABLE_X + TABLE_WIDTH - 10, y + 6, { align: "right" });
-          doc.line(TABLE_X, y + ROW_HEIGHT, TABLE_X + TABLE_WIDTH, y + ROW_HEIGHT);
-        });
-        backY += HEADER_HEIGHT + (ROW_HEIGHT * 5);
-
-        backY += GAP_MM * 2;
-        doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-        doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 65);
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-        doc.setFont("times", "bold"); doc.text("ASSESSMENT SCHEME & SCHOOL RULES", WIDTH / 2, backY + 7, { align: "center" });
-        doc.setTextColor('#000000');
-        const _termMax = getMaxMarksPerTerm(student.gradeLevel);
-        const theoryMax = getMaxTheoryMarks(student.gradeLevel);
-        const practicalMax = getMaxPracticalMarks(student.gradeLevel);
-        
-        let markingScheme = `1. Each subject carries a maximum of ${_termMax} marks per term (Total ${_termMax * 4} Marks).`;
-        if (practicalMax > 0) {
-          markingScheme = `1. Assessment structure: Theory (${theoryMax}) + Practical (${practicalMax}) = ${_termMax} marks per term.`;
-        }
-
-        const rulesList = [
-          markingScheme,
-          "2. Students must maintain 75% attendance to appear in final exams.",
-          "3. Punctuality and discipline are mandatory for all students.",
-          "4. Parents are requested to attend Parent-Teacher Meetings regularly.",
-          "5. Report card should be signed and returned within 3 days.",
-          "6. Students must wear proper school uniform daily.",
-          "7. Report card is valid only with the Principal's Signature and School Stamp."
-        ];
-        doc.setFontSize(14); doc.setFont("times", "bold");
-        rulesList.forEach((rule, idx) => doc.text(rule, TABLE_X + 5, backY + HEADER_HEIGHT + 10 + (idx * 8)));
-
-        const signY = HEIGHT - MARGIN - 35; // Moved up slightly to fit boxes
-        const slotW = (TABLE_WIDTH / 3) - 4;
-        const slots = [
-          { l: "Teacher's Signature", x: TABLE_X, img: teacherSign },
-          { l: "Parent's Signature", x: TABLE_X + slotW + 6, img: null },
-          { l: "Principal's Signature", x: TABLE_X + (slotW * 2) + 12, img: principalSign }
-        ];
-
-        slots.forEach(slot => {
-          // Slot Header
-          doc.setFillColor(designNum === 2 ? '#000000' : '#E0E0E0');
-          doc.rect(slot.x, signY, slotW, 6, 'F');
-          doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
-          doc.setFontSize(14); doc.setFont("times", "bold");
-          doc.text(slot.l, slot.x + slotW/2, signY + 4, { align: "center" });
-          
-          // Slot Box
-          doc.setDrawColor('#000000');
-          doc.rect(slot.x, signY, slotW, 25);
-          
-          // Signature image if exists
-          if (slot.img) {
-            doc.addImage(slot.img, 'PNG', slot.x + 5, signY + 8, slotW - 10, 14);
-          }
-        });
-        
-        doc.setTextColor('#000000'); // Reset text color
+      drawSecurityPattern(doc);
+      
+      if (logo) {
+        doc.saveGraphicsState();
+        try {
+          // @ts-ignore
+          const gstate = new doc.GState({ opacity: 0.1 });
+          doc.setGState(gstate);
+        } catch (e) {}
+        doc.addImage(logo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
+        doc.restoreGraphicsState();
       }
 
-      doc.save(`${schoolInfo.name}_Reports.pdf`);
+      doc.setLineWidth(1.2);
+      doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
+      doc.setLineWidth(0.3);
+      doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+
+      const baseTopY = currentTemplate.offsets.headerY - 3;
+      const logoY = designNum === 2 ? baseTopY + 18 : baseTopY + 11;
+      if (logo) doc.addImage(logo, 'PNG', TABLE_X, logoY, 20, 20);
+
+      doc.setFont("times", "bold");
+      doc.setFontSize(34);
+      if (designNum === 2) {
+        doc.setFillColor('#000000');
+        doc.rect(TABLE_X, baseTopY + 4, TABLE_WIDTH, 14, 'F');
+        doc.setTextColor('#FFFFFF');
+      } else {
+        doc.setTextColor('#000000');
+      }
+      const schoolNameX = designNum === 2 ? TABLE_X + (TABLE_WIDTH / 2) : (selectedSchoolCode === "3" ? (WIDTH / 2) + 7 : (WIDTH / 2) + 13);
+      doc.text(schoolInfo.name, schoolNameX, baseTopY + 15, { align: "center" });
+      
+      doc.setTextColor('#000000');
+      doc.setFont("times", "bolditalic");
+      doc.setFontSize(16);
+      const secondaryInfoX = (WIDTH / 2) + 4;
+      doc.text(schoolInfo.tagline, secondaryInfoX, baseTopY + 23, { align: "center" });
+      doc.text(schoolInfo.address, secondaryInfoX, baseTopY + 29, { align: "center" });
+      doc.text(`Phone no : ${schoolInfo.contact}  |  Email : ${schoolInfo.email}`, secondaryInfoX, baseTopY + 35, { align: "center" });
+       
+      const headingY = baseTopY + 37 + 2;
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
+      doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT);
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setFontSize(20);
+      doc.text("PROGRESS REPORT CARD (2025-26)", WIDTH / 2, headingY + 7, { align: "center" });
+
+      doc.setTextColor('#000000');
+      let currentY = headingY + HEADER_HEIGHT + GAP_MM;
+      
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setFontSize(16); doc.setFont("times", "bold");
+      doc.text("STUDENT PROFILE", WIDTH / 2, currentY + 7, { align: "center" });
+      doc.setTextColor('#000000');
+      
+      currentY += HEADER_HEIGHT + 9;
+      const col1 = TABLE_X + 2; const col2 = col1 + 42;
+      const col4 = TABLE_X + 115; const col5 = col4 + 25;
+      doc.setFontSize(14);
+      const formatDate = (dateStr: string) => {
+        if (!dateStr || dateStr === "N/A") return "N/A";
+        const parts = dateStr.split('-');
+        if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        return dateStr;
+      };
+      const info = [
+        { l: "Student Name:", v: String(student.name).toUpperCase(), l2: "Class:", v2: String(student.class).toUpperCase() },
+        { l: "Father's Name:", v: String(student.fathersName).toUpperCase(), l2: "Roll No:", v2: String(student.rollNo).toUpperCase() },
+        { l: "Mother's Name:", v: String(student.mothersName).toUpperCase(), l2: "DOB:", v2: formatDate(student.dob) },
+        { l: "SR No:", v: String(student.srNo).toUpperCase(), l2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? "PEN No:" : "", v2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? String(student.penNo || "N/A").toUpperCase() : "" }
+      ];
+      info.forEach(row => {
+        doc.setFont("times", "bold"); doc.text(row.l, col1, currentY);
+        doc.setFont("times", "bold"); doc.text(row.v, col2, currentY);
+        doc.setFont("times", "bold"); doc.text(row.l2, col4, currentY);
+        doc.setFont("times", "bold"); doc.text(row.v2, col5, currentY);
+        currentY += 9;
+      });
+
+      doc.setFont("times", "bold"); doc.text("Address:", col1, currentY);
+      doc.setFont("times", "bold"); doc.text(student.address?.toUpperCase() || "N/A", col2, currentY);
+      
+      let startProfileY = currentY - (9 * 4) - 9 - HEADER_HEIGHT; 
+      let profileTotalHeight = currentY - startProfileY + 4;
+      doc.rect(TABLE_X, startProfileY, TABLE_WIDTH, profileTotalHeight);
+      
+      currentY += 6;
+
+      currentY += GAP_MM;
+      const subCol = TABLE_WIDTH * 0.23; const mCol = TABLE_WIDTH * 0.16;
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT);
+      
+      doc.text("Subjects", TABLE_X + 5, currentY + 7);
+      const maxMarksPerTerm = getMaxMarksPerTerm(student.gradeLevel);
+      const labelText = `(${maxMarksPerTerm})`;
+      ['T1','T2','T3','T4'].forEach((t, i) => doc.text(`${t} ${labelText}`, TABLE_X + subCol + (mCol*(i+0.5)), currentY + 7, { align: "center" }));
+      doc.text(`Total (${maxMarksPerTerm * 4})`, TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 7, { align: "center" });
+
+      doc.setTextColor('#000000');
+      currentY += HEADER_HEIGHT;
+      
+      let t1Sum = 0, t2Sum = 0, t3Sum = 0, t4Sum = 0;
+
+      studentGrades.forEach(g => {
+        t1Sum += g.term1; t2Sum += g.term2; t3Sum += g.term3; t4Sum += g.term4;
+        doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
+        
+        doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
+        [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
+
+        doc.setFontSize(14); doc.text((g as any).subjectName, TABLE_X + 5, currentY + 6);
+        doc.setFontSize(13);
+        const terms = ['term1', 'term2', 'term3', 'term4'];
+        terms.forEach((t, i) => {
+          const val = g.details?.[t as keyof typeof g.details];
+          const mark = (val && val.practical > 0) ? `${val.theory}(T) + ${val.practical} (P)` : (g as any)[t].toString();
+          doc.text(mark, TABLE_X + subCol + (mCol*(i+0.5)), currentY + 6, { align: "center" });
+        });
+        doc.setFont("times", "bold");
+        doc.text((g.term1 + g.term2 + g.term3 + g.term4).toString(), TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 6, { align: "center" });
+        currentY += ROW_HEIGHT; doc.setFont("times", "bold");
+      });
+
+      doc.setFont("times", "bold");
+      doc.setFillColor('#F5F5F5');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT, 'F');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
+      doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
+      [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
+      
+      doc.text("TOTAL MARKS", TABLE_X + 5, currentY + 6);
+      [t1Sum, t2Sum, t3Sum, t4Sum].forEach((sum, i) => doc.text(sum.toString(), TABLE_X + subCol + (mCol*(i+0.5)), currentY + 6, { align: "center" }));
+      doc.text(totalObtained.toString(), TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 6, { align: "center" });
+      currentY += ROW_HEIGHT;
+
+      currentY += GAP_MM;
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT + ROW_HEIGHT);
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      const sumW = TABLE_WIDTH / 4;
+      
+      [1,2,3].forEach(i => doc.line(TABLE_X + (sumW*i), currentY + HEADER_HEIGHT, TABLE_X + (sumW*i), currentY + HEADER_HEIGHT + ROW_HEIGHT));
+
+      ["OBTAINED", "PERCENTAGE", "GRADE", "CLASS RANK"].forEach((h, i) => doc.text(h, TABLE_X + (sumW*(i+0.5)), currentY + 7, { align: "center" }));
+      doc.setTextColor('#000000');
+      doc.text(`${totalObtained}/${totalPossible}`, TABLE_X + (sumW*0.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
+      doc.text(`${percentage}%`, TABLE_X + (sumW*1.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
+      doc.text(finalGrade, TABLE_X + (sumW*2.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
+      doc.text(getOrdinal(rank), TABLE_X + (sumW*3.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
+
+      currentY += HEADER_HEIGHT + ROW_HEIGHT + GAP_MM;
+      const halfW = (TABLE_WIDTH / 2) - 3;
+      
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 4));
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.line(TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT, TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 4));
+
+      doc.setFont("times", "bold"); doc.text("CO-SCHOLASTIC", TABLE_X + halfW/2, currentY + 7, { align: "center" });
+      doc.setTextColor('#000000');
+      const activities = ["P.T.", "Discipline", "Art & Craft", "General Activity"];
+      const csData = student.coScholastic || {};
+      const values = [csData.pt, csData.discipline, csData.art, csData.yoga];
+
+      activities.forEach((act, idx) => {
+        const y = currentY + HEADER_HEIGHT + (ROW_HEIGHT * idx);
+        doc.setFont("times", "bold"); doc.text(act, TABLE_X + 2, y + 6);
+        doc.setFont("times", "bold"); doc.text(values[idx] || "A", TABLE_X + halfW - 5, y + 6, { align: "right" });
+        doc.line(TABLE_X, y + ROW_HEIGHT, TABLE_X + halfW, y + ROW_HEIGHT);
+      });
+
+      const attX = TABLE_X + halfW + 6;
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(attX, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.rect(attX, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 3));
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.line(attX + (halfW * 0.7), currentY + HEADER_HEIGHT, attX + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 3));
+
+      doc.setFont("times", "bold"); doc.text("ATTENDANCE", attX + halfW/2, currentY + 7, { align: "center" });
+      doc.setTextColor('#000000');
+      const attData = [
+        { l: "Total Days", v: student.attendance?.totalDays || 0 },
+        { l: "Present Days", v: student.attendance?.presentDays || 0 },
+        { l: "Attendance %", v: `${((student.attendance?.presentDays || 0) / (student.attendance?.totalDays || 1) * 100).toFixed(1)}%` }
+      ];
+      attData.forEach((row, idx) => {
+        const y = currentY + HEADER_HEIGHT + (ROW_HEIGHT * idx);
+        doc.setFont("times", "bold"); doc.text(row.l, attX + 2, y + 6);
+        doc.setFont("times", "bold"); doc.text(row.v.toString(), attX + halfW - 5, y + 6, { align: "right" });
+        if (idx < 2) doc.line(attX, y + ROW_HEIGHT, attX + halfW, y + ROW_HEIGHT);
+      });
+    };
+
+    const drawBackPage = (doc: jspdf, student: Student) => {
+      drawSecurityPattern(doc);
+      if (logo) {
+        doc.saveGraphicsState();
+        try {
+          // @ts-ignore
+          const gstate = new doc.GState({ opacity: 0.1 });
+          doc.setGState(gstate);
+        } catch (e) {}
+        doc.addImage(logo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
+        doc.restoreGraphicsState();
+      }
+
+      doc.setLineWidth(1.2); doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
+      doc.setLineWidth(0.3); doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+
+      let backY = 10;
+      
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); 
+      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 25);
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setFont("times", "bold"); 
+      doc.text("RESULT & PROMOTION", WIDTH / 2, backY + 7, { align: "center" });
+      
+      doc.setTextColor('#000000');
+      doc.setFontSize(16);
+      const nextClass = (cls: string) => {
+        const order = ['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+        const idx = order.indexOf(cls.toUpperCase());
+        return (idx !== -1 && idx < order.length - 1) ? order[idx + 1] : "__________";
+      };
+      doc.text(`Result:  PASS`, TABLE_X + 10, backY + HEADER_HEIGHT + 10);
+      doc.text(`Promoted to Class:  ${nextClass(student.class)}`, TABLE_X + 10, backY + HEADER_HEIGHT + 18);
+      
+      backY += HEADER_HEIGHT + 25 + (GAP_MM * 2);
+
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + (ROW_HEIGHT * 5));
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      
+      doc.line(TABLE_X + (TABLE_WIDTH * 0.35), backY + HEADER_HEIGHT, TABLE_X + (TABLE_WIDTH * 0.35), backY + HEADER_HEIGHT + (ROW_HEIGHT * 5));
+      doc.line(TABLE_X + (TABLE_WIDTH * 0.65), backY + HEADER_HEIGHT, TABLE_X + (TABLE_WIDTH * 0.65), backY + HEADER_HEIGHT + (ROW_HEIGHT * 5));
+
+      doc.setFontSize(16); doc.setFont("times", "bold");
+      doc.text("GRADING SYSTEM", WIDTH / 2, backY + 7, { align: "center" });
+      doc.setTextColor('#000000');
+      const systemY = backY + HEADER_HEIGHT;
+      const gradingRows = [
+        { r: "91-100", g: "A+", rm: "Outstanding" },
+        { r: "81-90", g: "A", rm: "Excellent" },
+        { r: "71-80", g: "B", rm: "Very Good" },
+        { r: "61-70", g: "C", rm: "Good" },
+        { r: "Below 60", g: "D", rm: "Needs Improvement" }
+      ];
+      gradingRows.forEach((g, idx) => {
+        const y = systemY + (ROW_HEIGHT * idx);
+        doc.setFont("times", "bold"); doc.text(g.r, TABLE_X + 10, y + 6);
+        doc.setFont("times", "bold"); doc.text(g.g, TABLE_X + (TABLE_WIDTH*0.5), y + 6, { align: "center" });
+        doc.setFont("times", "bolditalic"); doc.text(g.rm, TABLE_X + TABLE_WIDTH - 10, y + 6, { align: "right" });
+        doc.line(TABLE_X, y + ROW_HEIGHT, TABLE_X + TABLE_WIDTH, y + ROW_HEIGHT);
+      });
+      backY += HEADER_HEIGHT + (ROW_HEIGHT * 5);
+
+      backY += GAP_MM * 2;
+      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 65);
+      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setFont("times", "bold"); doc.text("ASSESSMENT SCHEME & SCHOOL RULES", WIDTH / 2, backY + 7, { align: "center" });
+      doc.setTextColor('#000000');
+      const _termMax = getMaxMarksPerTerm(student.gradeLevel);
+      const theoryMax = getMaxTheoryMarks(student.gradeLevel);
+      const practicalMax = getMaxPracticalMarks(student.gradeLevel);
+      
+      let markingScheme = `1. Each subject carries a maximum of ${_termMax} marks per term (Total ${_termMax * 4} Marks).`;
+      if (practicalMax > 0) {
+        markingScheme = `1. Assessment structure: Theory (${theoryMax}) + Practical (${practicalMax}) = ${_termMax} marks per term.`;
+      }
+
+      const rulesList = [
+        markingScheme,
+        "2. Students must maintain 75% attendance to appear in final exams.",
+        "3. Punctuality and discipline are mandatory for all students.",
+        "4. Parents are requested to attend Parent-Teacher Meetings regularly.",
+        "5. Report card should be signed and returned within 3 days.",
+        "6. Students must wear proper school uniform daily.",
+        "7. Report card is valid only with the Principal's Signature and School Stamp."
+      ];
+      doc.setFontSize(14); doc.setFont("times", "bold");
+      rulesList.forEach((rule, idx) => doc.text(rule, TABLE_X + 5, backY + HEADER_HEIGHT + 10 + (idx * 8)));
+
+      const signY = HEIGHT - MARGIN - 35;
+      const slotW = (TABLE_WIDTH / 3) - 4;
+      const slots = [
+        { l: "Teacher's Signature", x: TABLE_X, img: teacherSign },
+        { l: "Parent's Signature", x: TABLE_X + slotW + 6, img: null },
+        { l: "Principal's Signature", x: TABLE_X + (slotW * 2) + 12, img: principalSign }
+      ];
+
+      slots.forEach(slot => {
+        doc.setFillColor(designNum === 2 ? '#000000' : '#E0E0E0');
+        doc.rect(slot.x, signY, slotW, 6, 'F');
+        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+        doc.setFontSize(14); doc.setFont("times", "bold");
+        doc.text(slot.l, slot.x + slotW/2, signY + 4, { align: "center" });
+        doc.setDrawColor('#000000');
+        doc.rect(slot.x, signY, slotW, 25);
+        if (slot.img) {
+          doc.addImage(slot.img, 'PNG', slot.x + 5, signY + 8, slotW - 10, 14);
+        }
+      });
+      doc.setTextColor('#000000');
+    };
+
+    try {
+      const allStudentTotals = filteredStudents.map(s => {
+        const gs = getFilteredGrades(s);
+        return gs.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+      });
+      const sortedTotals = [...allStudentTotals].sort((a, b) => b - a);
+
+      // 1. Generate Front Pages PDF
+      const docFront = new jspdf("p", "mm", "a4");
+      for (let i = 0; i < filteredStudents.length; i++) {
+        if (i > 0) docFront.addPage();
+        const currentTotal = allStudentTotals[i];
+        const rank = sortedTotals.indexOf(currentTotal) + 1;
+        drawFrontPage(docFront, filteredStudents[i], rank);
+      }
+
+      // 2. Generate Back Page PDF (Single Page)
+      const docBack = new jspdf("p", "mm", "a4");
+      drawBackPage(docBack, filteredStudents[0]);
+
+      // 3. Create ZIP
+      const zip = new JSZip();
+      zip.file(`${selectedClass}_Front_Pages.pdf`, docFront.output("blob"));
+      zip.file(`${selectedClass}_Back_Page.pdf`, docBack.output("blob"));
+
+      const content = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(content);
+      link.download = `${selectedClass}_Reports.zip`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
     } catch (e) { console.error(e); } finally { setIsGenerating(null); }
   };
 
