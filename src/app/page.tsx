@@ -16,7 +16,21 @@ import {
 } from "lucide-react";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Student, SCHOOLS, getMaxMarksPerTerm, DEFAULT_TEMPLATE, MarksheetTemplate, Grade, getMaxTheoryMarks, getMaxPracticalMarks } from "@/lib/types";
+import { 
+  Student, 
+  SCHOOLS, 
+  getMaxMarksPerTerm, 
+  DEFAULT_TEMPLATE, 
+  MarksheetTemplate, 
+  Grade, 
+  getMaxTheoryMarks, 
+  getMaxPracticalMarks,
+  getSubjectsByGrade,
+  SubjectDef,
+  resolveSubjectName,
+  formatDateToIndian,
+  validatePenNo
+} from "@/lib/types";
 import { 
   Select, 
   SelectContent, 
@@ -91,6 +105,9 @@ export default function MarksheetProHome() {
   const [templateGrade, setTemplateGrade] = useState<string>("");
   const [templateStudentCount, setTemplateStudentCount] = useState<number>(10);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [pendingStudents, setPendingStudents] = useState<Student[]>([]);
+  const [isClassPromptOpen, setIsClassPromptOpen] = useState(false);
+  const [selectedPromptClass, setSelectedPromptClass] = useState<string>("");
 
   const { toast } = useToast();
 
@@ -100,14 +117,36 @@ export default function MarksheetProHome() {
   const principalSignInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('marksheet_template');
-    if (saved) {
+    const savedTemplate = localStorage.getItem('marksheet_template');
+    if (savedTemplate) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = JSON.parse(savedTemplate);
         setCurrentTemplate({
           ...parsed,
           offsets: { ...parsed.offsets, headerY: parsed.offsets.headerY }
         });
+      } catch (e) {}
+    }
+
+    const savedStudents = localStorage.getItem('ck-report-students');
+    if (savedStudents) {
+      try {
+        const parsed = JSON.parse(savedStudents);
+        if (parsed.length > 0) {
+          // Normalize existing data for case-insensitivity
+          const normalized = parsed.map((s: any) => ({
+            ...s,
+            class: (s.class || "").toUpperCase(),
+            gradeLevel: (s.gradeLevel || "1").toUpperCase()
+          }));
+          setStudents(normalized);
+          setDataLoaded(true);
+          const codes = Array.from(new Set(normalized.map((s: any) => s.schoolCode))) as string[];
+          if (codes.length === 1) setSelectedSchoolCode(codes[0]);
+          
+          // Save normalized back
+          localStorage.setItem('ck-report-students', JSON.stringify(normalized));
+        }
       } catch (e) {}
     }
   }, []);
@@ -121,15 +160,41 @@ export default function MarksheetProHome() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (h) => {
+        // More robust header normalization: Remove spaces AND underscores
+        return h.trim().toLowerCase()
+          .replace(/[\s_]+/g, '') // Remove spaces and underscores
+          .replace(/[^a-z0-9]/g, ''); // Remove other special characters
+      },
       complete: (results) => {
         const parsedStudents: Student[] = results.data.map((row: any, index: number) => {
           const grades: Grade[] = [];
+          const gradeLevel = (row.gradelevel || row.gradeLevel || row.class || "1").toUpperCase();
+          const defaultSubjects = getSubjectsByGrade(gradeLevel);
+          const penNoVal = validatePenNo(row.penno || row.pen_no);
+          const dobVal = formatDateToIndian(row.dob || row.date_of_birth || row.dateofbirth);
           
           for (let i = 1; i <= 20; i++) {
-            const subNameKey = `subject${i}_name`;
-            if (row[subNameKey]) {
+            const subNameKey = `subject${i}name`;
+            let subjectNameVal = row[subNameKey];
+
+            // Check if any marks exist for this index even if name is missing
+            const tKeys = [1, 2, 3, 4].map(t => `subject${i}t${t}theory`);
+            const pKeys = [1, 2, 3, 4].map(t => `subject${i}t${t}practical`);
+            const hasAnyMarks = [...tKeys, ...pKeys].some(k => row[k] !== undefined && row[k] !== "");
+
+            // Pre-resolve the subject name if it exists or if we fall back to default
+            const optionalCode = parseInt(row.optionalcode || row.optional_code) || 1;
+            
+            if (subjectNameVal) {
+              subjectNameVal = resolveSubjectName(subjectNameVal, gradeLevel, optionalCode);
+            } else if (hasAnyMarks && defaultSubjects[i - 1]) {
+              subjectNameVal = resolveSubjectName(defaultSubjects[i - 1].name, gradeLevel, optionalCode);
+            }
+
+            if (subjectNameVal) {
               const grade: Grade = {
-                subject: row[subNameKey],
+                subject: subjectNameVal,
                 term1: 0, term2: 0, term3: 0, term4: 0,
                 details: {
                   term1: { theory: 0, practical: 0 },
@@ -139,22 +204,21 @@ export default function MarksheetProHome() {
                 }
               };
 
-              const gradeLevel = row.gradeLevel || "1";
               const maxT = getMaxTheoryMarks(gradeLevel);
               const maxP = getMaxPracticalMarks(gradeLevel);
 
               [1, 2, 3, 4].forEach(t => {
-                const theoryKey = `subject${i}_t${t}_theory`;
-                const practicalKey = `subject${i}_t${t}_practical`;
+                const theoryKey = `subject${i}t${t}theory`;
+                const practicalKey = `subject${i}t${t}practical`;
                 
                 const theory = parseInt(row[theoryKey]) || 0;
                 const practical = parseInt(row[practicalKey]) || 0;
                 
                 if (theory > maxT) {
-                  validationErrors.push(`${row.name}: ${row[subNameKey]} Theory (${theory}) > ${maxT} in T${t}`);
+                  validationErrors.push(`${row.name || "Student"}: ${subjectNameVal} Theory (${theory}) > ${maxT} in T${t}`);
                 }
                 if (practical > maxP) {
-                  validationErrors.push(`${row.name}: ${row[subNameKey]} Practical (${practical}) > ${maxP} in T${t}`);
+                  validationErrors.push(`${row.name || "Student"}: ${subjectNameVal} Practical (${practical}) > ${maxP} in T${t}`);
                 }
 
                 (grade as any)[`term${t}`] = theory + practical;
@@ -167,57 +231,69 @@ export default function MarksheetProHome() {
           }
 
           let rawCode = "1";
-          if (row.schoolCode) {
-            const parsed = parseInt(String(row.schoolCode).trim());
+          const schoolCodeVal = row.schoolcode || row.schoolCode || row.school_code;
+          if (schoolCodeVal) {
+            const parsed = parseInt(String(schoolCodeVal).trim());
             if (!isNaN(parsed)) rawCode = String(parsed);
           }
 
           return {
             id: row.id || index.toString(),
-            name: row.name || "",
-            fathersName: row.fathersName || "",
-            mothersName: row.mothersName || "",
-            dob: row.dob || "",
-            penNo: row.penNo || "",
-            class: row.class || "",
-            rollNo: row.rollNo || "",
-            srNo: row.srNo || "",
+            name: row.name || row.studentname || "",
+            fathersName: row.fathersname || row.fathername || "",
+            mothersName: row.mothersname || row.mothername || "",
+            dob: dobVal,
+            penNo: penNoVal,
+            class: (row.class || "").toUpperCase(),
+            rollNo: row.rollno || row.roll_no || "",
+            srNo: row.srno || row.sr_no || "",
             address: row.address || "",
             schoolCode: rawCode,
-            gradeLevel: row.gradeLevel || "1",
-            attendance: { totalDays: parseInt(row.attendance_total) || 200, presentDays: parseInt(row.attendance_present) || 0 },
-            coScholastic: {
-              discipline: row.cs_discipline || "A",
-              pt: row.cs_pt || "A",
-              music: row.cs_music || "A",
-              art: row.cs_art || "A",
-              yoga: row.cs_yoga || "A"
+            gradeLevel: gradeLevel,
+            attendance: { 
+              totalDays: parseInt(row.attendancetotal || row.attendance_total) || 200, 
+              presentDays: parseInt(row.attendancepresent || row.attendance_present) || 0 
             },
-            optionalSubjectCode: parseInt(row.optionalCode) || 1,
+            coScholastic: {
+              discipline: row.csdiscipline || row.cs_discipline || "A",
+              pt: row.cspt || row.cs_pt || "A",
+              music: row.csmusic || row.cs_music || "A",
+              art: row.csart || row.cs_art || "A",
+              yoga: row.csyoga || row.cs_yoga || "A"
+            },
+            optionalSubjectCode: parseInt(row.optionalcode || row.optional_code) || 1,
             grades: grades
           };
         });
 
         if (parsedStudents.length > 0) {
-          setStudents(parsedStudents);
-          setDataLoaded(true);
-          
-          if (validationErrors.length > 0) {
-            toast({
-              title: "Imported with Warnings",
-              description: `Found ${validationErrors.length} mark limit violations. Please check the data.`,
-              variant: "destructive"
-            });
-            console.warn("Validation Errors:", validationErrors);
+          const missingClass = parsedStudents.some(s => !s.class);
+          if (missingClass) {
+            setPendingStudents(parsedStudents);
+            setIsClassPromptOpen(true);
           } else {
-            toast({
-              title: "Data Loaded Successfully",
-              description: `${parsedStudents.length} student records found.`,
-            });
+            setStudents(parsedStudents);
+            setDataLoaded(true);
+            
+            if (validationErrors.length > 0) {
+              toast({
+                title: "Imported with Warnings",
+                description: `Found ${validationErrors.length} mark limit violations. Please check the data.`,
+                variant: "destructive"
+              });
+              console.warn("Validation Errors:", validationErrors);
+            } else {
+              toast({
+                title: "Data Loaded Successfully",
+                description: `${parsedStudents.length} student records found.`,
+              });
+            }
+            
+            const codes = Array.from(new Set(parsedStudents.map(s => s.schoolCode)));
+            if (codes.length === 1) setSelectedSchoolCode(codes[0]);
+            
+            localStorage.setItem('ck-report-students', JSON.stringify(parsedStudents));
           }
-          
-          const codes = Array.from(new Set(parsedStudents.map(s => s.schoolCode)));
-          if (codes.length === 1) setSelectedSchoolCode(codes[0]);
         }
       },
       error: (error) => {
@@ -226,61 +302,27 @@ export default function MarksheetProHome() {
     });
   };
 
+  const handleApplyClassToPending = () => {
+    if (!selectedPromptClass) {
+      toast({ title: "Select Class", description: "Please select a class to continue.", variant: "destructive" });
+      return;
+    }
+    const updated = pendingStudents.map(s => ({ ...s, class: s.class || selectedPromptClass }));
+    setStudents(updated);
+    setDataLoaded(true);
+    localStorage.setItem('ck-report-students', JSON.stringify(updated));
+    setIsClassPromptOpen(false);
+    setPendingStudents([]);
+    toast({ title: "Import Complete", description: `Assigned ${selectedPromptClass} to missing records.` });
+  };
+
   const downloadSampleCSV = () => {
     if (!templateGrade) {
       toast({ title: "Select Grade", description: "Please select a grade level.", variant: "destructive" });
       return;
     }
 
-    let subjects: { name: string, hasPractical: boolean }[] = [];
-    const level = templateGrade.toUpperCase();
-    const gradeNum = parseInt(level);
-
-    if (['NUR', 'LKG', 'UKG'].includes(level)) {
-      subjects = [
-        { name: 'Hindi Oral', hasPractical: false },
-        { name: 'Hindi Written', hasPractical: false },
-        { name: 'English Oral', hasPractical: false },
-        { name: 'English Written', hasPractical: false },
-        { name: 'Math Oral', hasPractical: false },
-        { name: 'Math Written', hasPractical: false },
-        { name: 'Urdu / Poem', hasPractical: false },
-        { name: 'Drawing', hasPractical: false }
-      ];
-    } else if (gradeNum >= 1 && gradeNum <= 5) {
-      subjects = [
-        { name: 'Hindi', hasPractical: false },
-        { name: 'English', hasPractical: false },
-        { name: 'Mathematics', hasPractical: false },
-        { name: 'EVS', hasPractical: false },
-        { name: 'Computer', hasPractical: false },
-        { name: 'G.K.', hasPractical: false },
-        { name: 'Urdu / Sanskrit', hasPractical: false },
-        { name: 'Craft', hasPractical: false },
-        { name: 'Drawing', hasPractical: false }
-      ];
-    } else if (gradeNum >= 6 && gradeNum <= 8) {
-      subjects = [
-        { name: 'Hindi', hasPractical: false },
-        { name: 'English', hasPractical: false },
-        { name: 'Mathematics', hasPractical: false },
-        { name: 'Science', hasPractical: false },
-        { name: 'Social Science', hasPractical: false },
-        { name: 'Computer', hasPractical: false },
-        { name: 'Urdu / Sanskrit', hasPractical: false },
-        { name: 'H.Sci. / P. Kala', hasPractical: true },
-        { name: 'Drawing', hasPractical: false }
-      ];
-    } else if (gradeNum >= 9) {
-      subjects = [
-        { name: 'Hindi', hasPractical: true },
-        { name: 'English', hasPractical: true },
-        { name: 'Math / H.S.C', hasPractical: true },
-        { name: 'Science', hasPractical: true },
-        { name: 'Social Science', hasPractical: true },
-        { name: 'Drawing', hasPractical: true }
-      ];
-    }
+    const subjects = getSubjectsByGrade(templateGrade);
 
     const baseHeaders = [
       "id", "name", "fathersName", "mothersName", "dob", "penNo", "class", 
@@ -364,7 +406,7 @@ export default function MarksheetProHome() {
   };
 
   const availableSchools = useMemo(() => {
-    const codes = Array.from(new Set(students.map(s => s.schoolCode)));
+    const codes = Array.from(new Set(students.map(s => s.schoolCode))).filter(Boolean);
     return codes.map(code => SCHOOLS[code]).filter(Boolean);
   }, [students]);
 
@@ -373,15 +415,16 @@ export default function MarksheetProHome() {
     return Array.from(new Set(
       students
         .filter(s => s.schoolCode === selectedSchoolCode)
-        .map(s => s.class)
+        .map(s => (s.class || "").toUpperCase())
+        .filter(Boolean)
     )).sort((a, b) => {
       const order = ['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
-      const idxA = order.indexOf(a);
-      const idxB = order.indexOf(b);
+      const idxA = order.indexOf(String(a));
+      const idxB = order.indexOf(String(b));
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
-      return a.localeCompare(b);
+      return String(a).localeCompare(String(b));
     });
   }, [students, selectedSchoolCode]);
 
@@ -995,6 +1038,34 @@ export default function MarksheetProHome() {
             </CardContent>
           </Card>
         )}
+        {/* Missing Class Prompt */}
+        <Dialog open={isClassPromptOpen} onOpenChange={setIsClassPromptOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Missing Class Data</DialogTitle>
+              <DialogDescription>
+                Some students in your CSV are missing a "Class". Please select a class to assign to all these records.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label>Assign to Class</Label>
+              <Select onValueChange={setSelectedPromptClass} value={selectedPromptClass}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Class" />
+                </SelectTrigger>
+                <SelectContent>
+                  {['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map(lvl => (
+                    <SelectItem key={lvl} value={lvl}>Class {lvl}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsClassPromptOpen(false)}>Cancel</Button>
+              <Button onClick={handleApplyClassToPending}>Import All</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );
