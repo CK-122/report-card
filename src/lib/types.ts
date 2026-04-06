@@ -70,7 +70,7 @@ export const SCHOOLS: Record<string, SchoolInfo> = {
     tagline: "(A Co-Educational Hindi & English Medium School)",
     address: "Village Jabbarpur Post khera District Amroha",
     contact: "9837892812",
-    email: "ckhighschool@gmail.com",
+    email: "ckjabbarpur@gmail.com",
     gradeRange: "9 TO 10"
   },
   "3": {
@@ -79,7 +79,7 @@ export const SCHOOLS: Record<string, SchoolInfo> = {
     tagline: "(A Co-Educational Hindi & English Medium School)",
     address: "Village Jabbarpur Post khera District Amroha",
     contact: "9837892812",
-    email: "mtqschool@gmail.com",
+    email: "ckjabbarpur@gmail.com",
     gradeRange: "1 TO 8"
   }
 };
@@ -149,6 +149,168 @@ export function getMaxPracticalMarks(gradeLevel: string): number {
   if (gradeNum >= 6 && gradeNum <= 8) return 10;
   if (gradeNum >= 9) return 30;
   return 0;
+}
+
+export interface SubjectDef {
+  name: string;
+  hasPractical: boolean;
+}
+
+export const SUBJECTS_BY_GRADE: Record<string, SubjectDef[]> = {
+  'NUR': [
+    { name: 'Hindi Oral', hasPractical: false },
+    { name: 'Hindi Written', hasPractical: false },
+    { name: 'English Oral', hasPractical: false },
+    { name: 'English Written', hasPractical: false },
+    { name: 'Math Oral', hasPractical: false },
+    { name: 'Math Written', hasPractical: false },
+    { name: 'Urdu / Poem', hasPractical: false },
+    { name: 'Drawing', hasPractical: false }
+  ],
+  'LKG': [
+    { name: 'Hindi Oral', hasPractical: false },
+    { name: 'Hindi Written', hasPractical: false },
+    { name: 'English Oral', hasPractical: false },
+    { name: 'English Written', hasPractical: false },
+    { name: 'Math Oral', hasPractical: false },
+    { name: 'Math Written', hasPractical: false },
+    { name: 'Urdu / Poem', hasPractical: false },
+    { name: 'Drawing', hasPractical: false }
+  ],
+  'UKG': [
+    { name: 'Hindi Oral', hasPractical: false },
+    { name: 'Hindi Written', hasPractical: false },
+    { name: 'English Oral', hasPractical: false },
+    { name: 'English Written', hasPractical: false },
+    { name: 'Math Oral', hasPractical: false },
+    { name: 'Math Written', hasPractical: false },
+    { name: 'Urdu / Poem', hasPractical: false },
+    { name: 'Drawing', hasPractical: false }
+  ],
+  'PRIMARY': [
+    { name: 'Hindi', hasPractical: false },
+    { name: 'English', hasPractical: false },
+    { name: 'Mathematics', hasPractical: false },
+    { name: 'EVS', hasPractical: false },
+    { name: 'Computer', hasPractical: false },
+    { name: 'G.K.', hasPractical: false },
+    { name: 'Urdu / Sanskrit', hasPractical: false },
+    { name: 'Craft', hasPractical: false },
+    { name: 'Drawing', hasPractical: false }
+  ],
+  'MIDDLE': [
+    { name: 'Hindi', hasPractical: false },
+    { name: 'English', hasPractical: false },
+    { name: 'Mathematics', hasPractical: false },
+    { name: 'Science', hasPractical: false },
+    { name: 'Social Science', hasPractical: false },
+    { name: 'Computer', hasPractical: false },
+    { name: 'Urdu / Sanskrit', hasPractical: false },
+    { name: 'H.Sci. / P. Kala', hasPractical: true },
+    { name: 'Drawing', hasPractical: false }
+  ],
+  'HIGH': [
+    { name: 'Hindi', hasPractical: true },
+    { name: 'English', hasPractical: true },
+    { name: 'Math / H.S.C', hasPractical: true },
+    { name: 'Science', hasPractical: true },
+    { name: 'Social Science', hasPractical: true },
+    { name: 'Drawing', hasPractical: true }
+  ]
+};
+
+export function getSubjectsByGrade(gradeLevel: string): SubjectDef[] {
+  const level = gradeLevel.toUpperCase();
+  if (['NUR', 'LKG', 'UKG'].includes(level)) return SUBJECTS_BY_GRADE[level];
+  const gradeNum = parseInt(level);
+  if (gradeNum >= 1 && gradeNum <= 5) return SUBJECTS_BY_GRADE['PRIMARY'];
+  if (gradeNum >= 6 && gradeNum <= 8) return SUBJECTS_BY_GRADE['MIDDLE'];
+  if (gradeNum >= 9) return SUBJECTS_BY_GRADE['HIGH'];
+  return SUBJECTS_BY_GRADE['PRIMARY'];
+}
+
+/**
+ * Resolves a potentially generic subject name into a specific one based on the grade level and optional code.
+ * Standardizes the elective logic across the application.
+ */
+export function resolveSubjectName(rawName: string, gradeLevel: string, optionalCode: number): string {
+  const level = gradeLevel.toUpperCase();
+  const sub = rawName.toLowerCase();
+  const code = optionalCode || 1;
+
+  // Cleanup potential suffixes
+  let subjectName = rawName.replace(/\s*\(T\s*\+\s*P\)\s*/g, '');
+
+  if (['NUR', 'LKG', 'UKG'].includes(level)) {
+    if (sub.includes('urdu / poem')) {
+      return code === 1 ? "Urdu" : "Poem";
+    }
+  } else {
+    const gradeNum = parseInt(level);
+    if (gradeNum >= 1 && gradeNum <= 5) {
+      if (sub.includes('urdu / sans')) {
+        return code === 1 ? "Urdu" : "Sanskrit";
+      }
+    } else if (gradeNum >= 6 && gradeNum <= 8) {
+      if (sub.includes('urdu / sans')) {
+        // Class 6-8: 1 or 2 is Urdu, 3 is Sanskrit based on existing logic in page.tsx
+        return (code === 1 || code === 2) ? "Urdu" : "Sanskrit";
+      }
+      if (sub.includes('h.sci. / p. kala') || sub.includes('h.s.c. / p. kala')) {
+        // Class 6-8: 1 or 3 is Pustak Kala, 2 is Home Science based on existing logic in page.tsx
+        return (code === 1 || code === 3) ? "Pustak Kala" : "Home Science";
+      }
+    } else if (gradeNum >= 9) {
+      if (sub.includes('math / h.s.c')) {
+        return code === 1 ? "Mathematics" : "Home Science";
+      }
+    }
+  }
+
+  return subjectName;
+}
+
+/**
+ * Ensures the date is in Indian style (DD-MM-YYYY).
+ * Handles formats like YYYY-MM-DD, MM/DD/YYYY, etc.
+ */
+export function formatDateToIndian(dateStr: string): string {
+  if (!dateStr || dateStr.trim() === "") return "";
+  
+  // Try to parse the date
+  let d = new Date(dateStr);
+  
+  // If parsing fails or is invalid, check if it's already in DD-MM-YYYY
+  if (isNaN(d.getTime())) {
+    const parts = dateStr.split(/[-/]/);
+    if (parts.length === 3) {
+      // If it looks like DD-MM-YYYY or DD/MM/YYYY
+      if (parts[0].length <= 2 && parts[2].length === 4) {
+        return `${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}-${parts[2]}`;
+      }
+      // If it looks like YYYY-MM-DD
+      if (parts[0].length === 4) {
+        return `${parts[2].padStart(2, '0')}-${parts[1].padStart(2, '0')}-${parts[0]}`;
+      }
+    }
+    return dateStr; // Fallback to raw if unparseable
+  }
+
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  
+  return `${day}-${month}-${year}`;
+}
+
+/**
+ * Validates PEN NO. Must be exactly 11 characters.
+ * Returns the pen if valid, otherwise empty string.
+ */
+export function validatePenNo(pen: string): string {
+  if (!pen) return "";
+  const cleaned = pen.toString().trim();
+  return cleaned.length === 11 ? cleaned : "";
 }
 
 export const MOCK_STUDENTS: Student[] = [];
