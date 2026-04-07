@@ -150,7 +150,7 @@ function ReportCard({ student }: { student: Student }) {
   };
 
   const formatDate = (dateStr: string) => {
-    if (!dateStr || dateStr === "N/A") return "N/A";
+    if (!dateStr || dateStr === "N/A" || dateStr.trim() === "") return "XX/XX/XXXX";
     const parts = dateStr.split('-');
     if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
     return dateStr;
@@ -206,35 +206,31 @@ function ReportCard({ student }: { student: Student }) {
           </thead>
           <tbody className="font-bold">
             <tr className="h-[10mm]">
-              <td className="pl-4 pr-2 whitespace-nowrap w-[20%]">Student Name:</td>
+              <td className="pl-4 pr-2 whitespace-nowrap w-[20%]">STUDENT NAME:</td>
               <td className="w-[30%]">{student.name}</td>
               <td className="w-[5%]" />
-              <td className="pr-2 whitespace-nowrap w-[15%]">Class:</td>
-              <td className="w-[30%]">{student.class}</td>
+              <td className="pr-2 whitespace-nowrap w-[15%]">CLASS / ROLL:</td>
+              <td className="w-[30%]">
+                <span className="mr-4">{student.class}</span>
+                <span className="text-[12pt]">Roll No:</span> <span className="ml-1">{student.rollNo}</span>
+              </td>
             </tr>
             <tr className="h-[10mm]">
-              <td className="pl-4 pr-2 whitespace-nowrap">Father Name:</td>
+              <td className="pl-4 pr-2 whitespace-nowrap">FATHER'S NAME:</td>
               <td>{student.fathersName}</td>
               <td />
-              <td className="pr-2 whitespace-nowrap">Roll No:</td>
-              <td>{student.rollNo}</td>
-            </tr>
-            <tr className="h-[10mm]">
-              <td className="pl-4 pr-2 whitespace-nowrap">Mother Name:</td>
-              <td>{student.mothersName}</td>
-              <td />
-              <td className="pr-2 whitespace-nowrap">DOB:</td>
+              <td className="pr-2 whitespace-nowrap">DATE OF BIRTH:</td>
               <td>{formatDate(student.dob)}</td>
             </tr>
             <tr className="h-[10mm]">
-              <td className="pl-4 pr-2 whitespace-nowrap">SR No:</td>
-              <td>{student.srNo}</td>
+              <td className="pl-4 pr-2 whitespace-nowrap">MOTHER'S NAME:</td>
+              <td>{student.mothersName}</td>
               <td />
-              <td className="pr-2 whitespace-nowrap">PEN No:</td>
-              <td>{student.penNo || "N/A"}</td>
+              <td className="pr-2 whitespace-nowrap">SR NO:</td>
+              <td>{student.srNo}</td>
             </tr>
             <tr className="h-[10mm]">
-              <td className="pl-4 pr-2 whitespace-nowrap">Address:</td>
+              <td className="pl-4 pr-2 whitespace-nowrap">ADDRESS:</td>
               <td colSpan={4} className="pr-4">{student.address?.toUpperCase() || "N/A"}</td>
             </tr>
           </tbody>

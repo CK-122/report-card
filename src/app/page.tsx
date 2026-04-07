@@ -29,7 +29,7 @@ import {
   SubjectDef,
   resolveSubjectName,
   formatDateToIndian,
-  validatePenNo
+  calculateAttendance
 } from "@/lib/types";
 import { 
   Select, 
@@ -171,7 +171,6 @@ export default function MarksheetProHome() {
           const grades: Grade[] = [];
           const gradeLevel = (row.gradelevel || row.gradeLevel || row.class || "1").toUpperCase();
           const defaultSubjects = getSubjectsByGrade(gradeLevel);
-          const penNoVal = validatePenNo(row.penno || row.pen_no);
           const dobVal = formatDateToIndian(row.dob || row.date_of_birth || row.dateofbirth);
           
           for (let i = 1; i <= 20; i++) {
@@ -243,17 +242,13 @@ export default function MarksheetProHome() {
             fathersName: row.fathersname || row.fathername || "",
             mothersName: row.mothersname || row.mothername || "",
             dob: dobVal,
-            penNo: penNoVal,
             class: (row.class || "").toUpperCase(),
             rollNo: row.rollno || row.roll_no || "",
             srNo: row.srno || row.sr_no || "",
             address: row.address || "",
             schoolCode: rawCode,
             gradeLevel: gradeLevel,
-            attendance: { 
-              totalDays: parseInt(row.attendancetotal || row.attendance_total) || 200, 
-              presentDays: parseInt(row.attendancepresent || row.attendance_present) || 0 
-            },
+            attendance: calculateAttendance(0), // Placeholder, will update after marks calculation
             coScholastic: {
               discipline: row.csdiscipline || row.cs_discipline || "A",
               pt: row.cspt || row.cs_pt || "A",
@@ -266,13 +261,26 @@ export default function MarksheetProHome() {
           };
         });
 
-        if (parsedStudents.length > 0) {
-          const missingClass = parsedStudents.some(s => !s.class);
+        // Update attendance based on marks for each student
+        const studentsWithAttendance = parsedStudents.map(student => {
+          let totalPossible = student.grades.length * (getMaxTheoryMarks(student.gradeLevel) + getMaxPracticalMarks(student.gradeLevel)) * 4;
+          let totalObtained = student.grades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+          
+          if (totalPossible === 0) totalPossible = 1;
+          const perc = (totalObtained / totalPossible) * 100;
+          return {
+            ...student,
+            attendance: calculateAttendance(perc)
+          };
+        });
+
+        if (studentsWithAttendance.length > 0) {
+          const missingClass = studentsWithAttendance.some(s => !s.class);
           if (missingClass) {
-            setPendingStudents(parsedStudents);
+            setPendingStudents(studentsWithAttendance);
             setIsClassPromptOpen(true);
           } else {
-            setStudents(parsedStudents);
+            setStudents(studentsWithAttendance);
             setDataLoaded(true);
             
             if (validationErrors.length > 0) {
@@ -325,9 +333,8 @@ export default function MarksheetProHome() {
     const subjects = getSubjectsByGrade(templateGrade);
 
     const baseHeaders = [
-      "id", "name", "fathersName", "mothersName", "dob", "penNo", "class", 
+      "id", "name", "fathersName", "mothersName", "dob", "class", 
       "rollNo", "srNo", "address", "schoolCode", "gradeLevel", "optionalCode",
-      "attendance_total", "attendance_present",
       "cs_discipline", "cs_pt", "cs_music", "cs_art", "cs_yoga"
     ];
 
@@ -355,7 +362,6 @@ export default function MarksheetProHome() {
         "Father Name", // fathersName
         "Mother Name", // mothersName
         "2010-01-01", // dob
-        "", // penNo
         templateGrade, // class
         i.toString(), // rollNo
         `SR-${1000 + i}`, // srNo
@@ -363,8 +369,6 @@ export default function MarksheetProHome() {
         currentSchoolCode, // schoolCode
         templateGrade, // gradeLevel
         "1", // optionalCode
-        "", // attendance_total
-        "", // attendance_present
         "A", "A", "A", "A", "A" // co-scholastic
       ];
 
@@ -583,16 +587,15 @@ export default function MarksheetProHome() {
       const col4 = TABLE_X + 115; const col5 = col4 + 25;
       doc.setFontSize(14);
       const formatDate = (dateStr: string) => {
-        if (!dateStr || dateStr === "N/A") return "N/A";
+        if (!dateStr || dateStr === "N/A" || dateStr.trim() === "") return "XX/XX/XXXX";
         const parts = dateStr.split('-');
         if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
         return dateStr;
       };
       const info = [
-        { l: "Student Name:", v: String(student.name).toUpperCase(), l2: "Class:", v2: String(student.class).toUpperCase() },
-        { l: "Father's Name:", v: String(student.fathersName).toUpperCase(), l2: "Roll No:", v2: String(student.rollNo).toUpperCase() },
-        { l: "Mother's Name:", v: String(student.mothersName).toUpperCase(), l2: "DOB:", v2: formatDate(student.dob) },
-        { l: "SR No:", v: String(student.srNo).toUpperCase(), l2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? "PEN No:" : "", v2: !['NUR', 'LKG', 'UKG'].includes(String(student.class).toUpperCase()) ? String(student.penNo || "N/A").toUpperCase() : "" }
+        { l: "STUDENT NAME:", v: String(student.name).toUpperCase(), l2: "CLASS / ROLL:", v2: `${String(student.class).toUpperCase()} / ${String(student.rollNo).toUpperCase()}` },
+        { l: "FATHER'S NAME:", v: String(student.fathersName).toUpperCase(), l2: "DATE OF BIRTH:", v2: formatDate(student.dob) },
+        { l: "MOTHER'S NAME:", v: String(student.mothersName).toUpperCase(), l2: "SR NO:", v2: String(student.srNo).toUpperCase() }
       ];
       info.forEach(row => {
         doc.setFont("times", "bold"); doc.text(row.l, col1, currentY);
@@ -602,7 +605,7 @@ export default function MarksheetProHome() {
         currentY += 9;
       });
 
-      doc.setFont("times", "bold"); doc.text("Address:", col1, currentY);
+      doc.setFont("times", "bold"); doc.text("ADDRESS:", col1, currentY);
       doc.setFont("times", "bold"); doc.text(student.address?.toUpperCase() || "N/A", col2, currentY);
       
       let startProfileY = currentY - (9 * 4) - 9 - HEADER_HEIGHT; 
@@ -675,7 +678,7 @@ export default function MarksheetProHome() {
       doc.text(`${totalObtained}/${totalPossible}`, TABLE_X + (sumW*0.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
       doc.text(`${percentage}%`, TABLE_X + (sumW*1.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
       doc.text(finalGrade, TABLE_X + (sumW*2.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
-      doc.text(getOrdinal(rank), TABLE_X + (sumW*3.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
+      doc.text(rank <= 3 ? getOrdinal(rank) : "-", TABLE_X + (sumW*3.5), currentY + HEADER_HEIGHT + 6, { align: "center" });
 
       currentY += HEADER_HEIGHT + ROW_HEIGHT + GAP_MM;
       const halfW = (TABLE_WIDTH / 2) - 3;

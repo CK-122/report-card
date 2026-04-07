@@ -31,3 +31,6 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# local data
+src/New folder/

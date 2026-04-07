@@ -22,7 +22,6 @@ export interface Student {
   dob: string;
   rollNo: string;
   srNo: string;
-  penNo: string;
   gradeLevel: string;
   class: string;
   schoolCode: string;
@@ -303,14 +302,20 @@ export function formatDateToIndian(dateStr: string): string {
   return `${day}-${month}-${year}`;
 }
 
-/**
- * Validates PEN NO. Must be exactly 11 characters.
- * Returns the pen if valid, otherwise empty string.
- */
-export function validatePenNo(pen: string): string {
-  if (!pen) return "";
-  const cleaned = pen.toString().trim();
-  return cleaned.length === 11 ? cleaned : "";
-}
-
 export const MOCK_STUDENTS: Student[] = [];
+
+/**
+ * Calculates student attendance automatically based on their academic performance.
+ * @param percentage The overall percentage of marks (0-100).
+ * @returns An object containing totalDays (fixed at 227) and presentDays (76% to 90% of total).
+ */
+export function calculateAttendance(percentage: number): { totalDays: number, presentDays: number } {
+  const totalDays = 227;
+  // Ensure percentage is between 0 and 100
+  const safePerc = Math.max(0, Math.min(100, percentage));
+  // Map 0-100 marks to 76-90 attendance percentage
+  const attendanceRatio = (76 + (safePerc / 100 * 14)) / 100;
+  const presentDays = Math.round(totalDays * attendanceRatio);
+  
+  return { totalDays, presentDays };
+}

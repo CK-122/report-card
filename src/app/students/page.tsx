@@ -53,7 +53,7 @@ import {
   SubjectDef,
   resolveSubjectName,
   formatDateToIndian,
-  validatePenNo
+  calculateAttendance
 } from "@/lib/types";
 import { 
   Select, 
@@ -127,7 +127,6 @@ export default function StudentsPage() {
           const grades: Grade[] = [];
           const gradeLevel = (row.gradelevel || row.gradeLevel || row.class || "1").toUpperCase();
           const defaultSubjects = getSubjectsByGrade(gradeLevel);
-          const penNoVal = validatePenNo(row.penno || row.pen_no);
           const dobVal = formatDateToIndian(row.dob || row.date_of_birth || row.dateofbirth);
 
           for (let i = 1; i <= 9; i++) {
@@ -190,17 +189,13 @@ export default function StudentsPage() {
             fathersName: row.fathersname || row.fathername || "",
             mothersName: row.mothersname || row.mothername || "",
             dob: dobVal,
-            penNo: penNoVal,
             class: (row.class || "").toUpperCase(),
             rollNo: row.rollno || row.roll_no || "",
             srNo: row.srno || row.sr_no || "",
             address: row.address || "",
             schoolCode: rawCode,
             gradeLevel: gradeLevel,
-            attendance: { 
-              totalDays: parseInt(row.attendancetotal || row.attendance_total) || 200, 
-              presentDays: parseInt(row.attendancepresent || row.attendance_present) || 0 
-            },
+            attendance: calculateAttendance(0), // Placeholder
             coScholastic: {
               discipline: row.csdiscipline || row.cs_discipline || "A",
               pt: row.cspt || row.cs_pt || "A",
@@ -213,14 +208,26 @@ export default function StudentsPage() {
           };
         });
 
-        if (parsedStudents.length > 0) {
-          const missingClass = parsedStudents.some(s => !s.class);
+        // Update attendance based on marks for each student
+        const studentsWithAttendance = parsedStudents.map(student => {
+          let totalPossible = student.grades.length * (getMaxTheoryMarks(student.gradeLevel) + getMaxPracticalMarks(student.gradeLevel)) * 4;
+          let totalObtained = student.grades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+          if (totalPossible === 0) totalPossible = 1;
+          const perc = (totalObtained / totalPossible) * 100;
+          return {
+            ...student,
+            attendance: calculateAttendance(perc)
+          };
+        });
+
+        if (studentsWithAttendance.length > 0) {
+          const missingClass = studentsWithAttendance.some(s => !s.class);
           if (missingClass) {
-            setPendingStudents(parsedStudents);
+            setPendingStudents(studentsWithAttendance);
             setIsClassPromptOpen(true);
           } else {
-            setStudents(parsedStudents);
-            localStorage.setItem('ck-report-students', JSON.stringify(parsedStudents));
+            setStudents(studentsWithAttendance);
+            localStorage.setItem('ck-report-students', JSON.stringify(studentsWithAttendance));
             if (validationErrors.length > 0) {
               toast({
                 title: "Imported with Warnings",
@@ -336,7 +343,6 @@ export default function StudentsPage() {
         fathersName: student.fathersName,
         mothersName: student.mothersName,
         dob: student.dob,
-        penNo: student.penNo || "",
         class: student.class,
         rollNo: student.rollNo,
         srNo: student.srNo,
@@ -344,8 +350,6 @@ export default function StudentsPage() {
         schoolCode: student.schoolCode,
         gradeLevel: student.gradeLevel,
         optionalCode: student.optionalSubjectCode?.toString() || "1",
-        attendance_total: student.attendance?.totalDays?.toString() || "",
-        attendance_present: student.attendance?.presentDays?.toString() || "",
         cs_discipline: student.coScholastic?.discipline || "A",
         cs_pt: student.coScholastic?.pt || "A",
         cs_music: student.coScholastic?.music || "A",
@@ -444,7 +448,6 @@ export default function StudentsPage() {
                   <TableHead className="text-[11px] font-bold uppercase">Roll</TableHead>
                   <TableHead className="text-[11px] font-bold uppercase">SR No</TableHead>
                   <TableHead className="text-[11px] font-bold uppercase">DOB</TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase">PEN No</TableHead>
                   <TableHead className="text-[11px] font-bold uppercase text-primary">Marks</TableHead>
                   <TableHead className="text-[11px] font-bold uppercase text-primary">%</TableHead>
                   <TableHead className="text-[11px] font-bold uppercase text-primary">Rank</TableHead>
@@ -461,7 +464,6 @@ export default function StudentsPage() {
                     <TableCell className="text-[11px]">{student.rollNo}</TableCell>
                     <TableCell className="text-[11px] text-muted-foreground">{student.srNo}</TableCell>
                     <TableCell className="text-[11px] text-muted-foreground whitespace-nowrap">{student.dob}</TableCell>
-                    <TableCell className="text-[11px] text-muted-foreground">{student.penNo || "-"}</TableCell>
                     <TableCell className="text-[11px] font-black text-primary">{student.totalObtained}</TableCell>
                     <TableCell className="text-[11px] font-black text-primary">{student.percentage}%</TableCell>
                     <TableCell className="text-[11px]">
@@ -471,7 +473,7 @@ export default function StudentsPage() {
                         student.rank === 3 ? 'bg-orange-100 text-orange-800' : 
                         'bg-blue-50 text-blue-700'
                       }`}>
-                        {student.rank}{student.rank === 1 ? 'ST' : student.rank === 2 ? 'ND' : student.rank === 3 ? 'RD' : 'TH'}
+                        {student.rank <= 3 ? `${student.rank}${student.rank === 1 ? 'ST' : student.rank === 2 ? 'ND' : 'RD'}` : '-'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -592,32 +594,8 @@ export default function StudentsPage() {
               </div>
               
               <div className="md:col-span-2 mt-4 border-t pt-4">
-                <h4 className="text-sm font-bold uppercase mb-4 text-muted-foreground">Attendance & Co-Scholastic</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-att-total">Total Days</Label>
-                    <Input 
-                      id="edit-att-total" 
-                      type="number"
-                      value={editingStudent.attendance?.totalDays || 0} 
-                      onChange={(e) => setEditingStudent({
-                        ...editingStudent, 
-                        attendance: { ...(editingStudent.attendance || {presentDays:0}), totalDays: parseInt(e.target.value) || 0 }
-                      })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-att-present">Present</Label>
-                    <Input 
-                      id="edit-att-present" 
-                      type="number"
-                      value={editingStudent.attendance?.presentDays || 0} 
-                      onChange={(e) => setEditingStudent({
-                        ...editingStudent, 
-                        attendance: { ...(editingStudent.attendance || {totalDays:0}), presentDays: parseInt(e.target.value) || 0 }
-                      })}
-                    />
-                  </div>
+                <h4 className="text-sm font-bold uppercase mb-4 text-muted-foreground">Co-Scholastic</h4>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 </div>
               </div>
             </div>

@@ -25,7 +25,6 @@ const DEFAULT_PREVIEW_STUDENT: Student = {
   dob: '2018-10-13',
   rollNo: '1',
   srNo: '2000.0',
-  penNo: 'PEN630550',
   gradeLevel: '6',
   class: '6 - A',
   schoolCode: '1',
@@ -42,7 +41,7 @@ const DEFAULT_PREVIEW_STUDENT: Student = {
     { subject: 'Drawing', term1: 27, term2: 29, term3: 47, term4: 43 },
     { subject: 'P.T.', term1: 43, term2: 32, term3: 50, term4: 39 }
   ],
-  attendance: { totalDays: 200, presentDays: 168 }
+  attendance: { totalDays: 227, presentDays: 192 }
 };
 
 export default function TemplateEditor() {
@@ -58,7 +57,7 @@ export default function TemplateEditor() {
   };
 
   const formatDate = (dateStr: string) => {
-    if (!dateStr || dateStr === "N/A") return "N/A";
+    if (!dateStr || dateStr === "N/A" || dateStr.trim() === "") return "XX/XX/XXXX";
     const parts = dateStr.split('-');
     if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
     return dateStr;
@@ -240,35 +239,28 @@ export default function TemplateEditor() {
                           </thead>
                           <tbody className="font-bold">
                             <tr className="h-[10mm]">
-                              <td className="pl-4 pr-2 whitespace-nowrap w-[20%]">Student Name:</td>
+                              <td className="pl-4 pr-2 whitespace-nowrap w-[20%]">STUDENT NAME:</td>
                               <td className="w-[30%]">{String(previewStudent.name).toUpperCase()}</td>
                               <td className="w-[5%]" />
-                              <td className="pr-2 whitespace-nowrap w-[15%]">Class:</td>
-                              <td className="w-[30%]">{String(previewStudent.class).toUpperCase()}</td>
+                              <td className="pr-2 whitespace-nowrap w-[15%]">CLASS / ROLL:</td>
+                              <td className="w-[30%]">{String(previewStudent.class).toUpperCase()} / {String(previewStudent.rollNo).toUpperCase()}</td>
                             </tr>
                             <tr className="h-[10mm]">
-                              <td className="pl-4 pr-2 whitespace-nowrap">Father Name:</td>
+                              <td className="pl-4 pr-2 whitespace-nowrap">FATHER'S NAME:</td>
                               <td>{String(previewStudent.fathersName).toUpperCase()}</td>
                               <td />
-                              <td className="pr-2 whitespace-nowrap">Roll No:</td>
-                              <td>{String(previewStudent.rollNo).toUpperCase()}</td>
-                            </tr>
-                            <tr className="h-[10mm]">
-                              <td className="pl-4 pr-2 whitespace-nowrap">Mother Name:</td>
-                              <td>{String(previewStudent.mothersName).toUpperCase()}</td>
-                              <td />
-                              <td className="pr-2 whitespace-nowrap">DOB:</td>
+                              <td className="pr-2 whitespace-nowrap">DATE OF BIRTH:</td>
                               <td>{formatDate(previewStudent.dob)}</td>
                             </tr>
                             <tr className="h-[10mm]">
-                              <td className="pl-4 pr-2 whitespace-nowrap">SR No:</td>
-                              <td>{String(previewStudent.srNo).toUpperCase()}</td>
+                              <td className="pl-4 pr-2 whitespace-nowrap">MOTHER'S NAME:</td>
+                              <td>{String(previewStudent.mothersName).toUpperCase()}</td>
                               <td />
-                              <td className="pr-2 whitespace-nowrap">PEN No:</td>
-                              <td>{String(previewStudent.penNo || "N/A").toUpperCase()}</td>
+                              <td className="pr-2 whitespace-nowrap">SR NO:</td>
+                              <td>{String(previewStudent.srNo).toUpperCase()}</td>
                             </tr>
                             <tr className="h-[10mm]">
-                              <td className="pl-4 pr-2 whitespace-nowrap">Address:</td>
+                              <td className="pl-4 pr-2 whitespace-nowrap">ADDRESS:</td>
                               <td colSpan={4} className="pr-4">{String(previewStudent.address || "N/A").toUpperCase()}</td>
                             </tr>
                           </tbody>
