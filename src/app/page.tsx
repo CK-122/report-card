@@ -584,13 +584,11 @@ export default function MarksheetProHome() {
       
       currentY += HEADER_HEIGHT + 9;
       const col1 = TABLE_X + 2; const col2 = col1 + 42;
-      const col4 = TABLE_X + 115; const col5 = col4 + 25;
-      doc.setFontSize(14);
+      const col4 = TABLE_X + 110; const col5 = col4 + 38;
+      doc.setFontSize(13);
       const formatDate = (dateStr: string) => {
         if (!dateStr || dateStr === "N/A" || dateStr.trim() === "") return "XX/XX/XXXX";
-        const parts = dateStr.split('-');
-        if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
-        return dateStr;
+        return formatDateToIndian(dateStr);
       };
       const info = [
         { l: "STUDENT NAME:", v: String(student.name).toUpperCase(), l2: "CLASS / ROLL:", v2: `${String(student.class).toUpperCase()} / ${String(student.rollNo).toUpperCase()}` },
@@ -608,7 +606,7 @@ export default function MarksheetProHome() {
       doc.setFont("times", "bold"); doc.text("ADDRESS:", col1, currentY);
       doc.setFont("times", "bold"); doc.text(student.address?.toUpperCase() || "N/A", col2, currentY);
       
-      let startProfileY = currentY - (9 * 4) - 9 - HEADER_HEIGHT; 
+      let startProfileY = currentY - (9 * 3) - 9 - HEADER_HEIGHT; 
       let profileTotalHeight = currentY - startProfileY + 4;
       doc.rect(TABLE_X, startProfileY, TABLE_WIDTH, profileTotalHeight);
       
