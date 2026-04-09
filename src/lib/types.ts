@@ -43,6 +43,14 @@ export interface Student {
   };
 }
 
+import { 
+  LOGO_SCHOOL_1, 
+  LOGO_SCHOOL_2, 
+  LOGO_SCHOOL_3,
+  LOGO_SCHOOL_1_COLOR,
+  LOGO_SCHOOL_2_COLOR
+} from "./logos";
+
 export interface SchoolInfo {
   code: string;
   name: string;
@@ -51,6 +59,8 @@ export interface SchoolInfo {
   contact: string;
   email: string;
   gradeRange: string;
+  logo?: string;
+  logoColor?: string;
 }
 
 export const SCHOOLS: Record<string, SchoolInfo> = {
@@ -61,7 +71,9 @@ export const SCHOOLS: Record<string, SchoolInfo> = {
     address: "Village Jabbarpur Post khera District Amroha",
     contact: "9837892812",
     email: "ckjabbarpur@gmail.com",
-    gradeRange: "NUR TO 8"
+    gradeRange: "NUR TO 8",
+    logo: LOGO_SCHOOL_1,
+    logoColor: LOGO_SCHOOL_1_COLOR
   },
   "2": {
     code: "2",
@@ -70,16 +82,19 @@ export const SCHOOLS: Record<string, SchoolInfo> = {
     address: "Village Jabbarpur Post khera District Amroha",
     contact: "9837892812",
     email: "ckjabbarpur@gmail.com",
-    gradeRange: "9 TO 10"
+    gradeRange: "9 TO 10",
+    logo: LOGO_SCHOOL_2,
+    logoColor: LOGO_SCHOOL_2_COLOR
   },
   "3": {
     code: "3",
     name: "M.T.Q.",
-    tagline: "(A Co-Educational Hindi & English Medium School)",
+    tagline: "(A Co-Educational Hindi & English Medium Institution)",
     address: "Village Jabbarpur Post khera District Amroha",
     contact: "9837892812",
     email: "ckjabbarpur@gmail.com",
-    gradeRange: "1 TO 8"
+    gradeRange: "1 TO 8",
+    logo: LOGO_SCHOOL_3
   }
 };
 
@@ -211,7 +226,7 @@ export const SUBJECTS_BY_GRADE: Record<string, SubjectDef[]> = {
   'HIGH': [
     { name: 'Hindi', hasPractical: true },
     { name: 'English', hasPractical: true },
-    { name: 'Math / H.S.C', hasPractical: true },
+    { name: 'Math/H.Sci.', hasPractical: true },
     { name: 'Science', hasPractical: true },
     { name: 'Social Science', hasPractical: true },
     { name: 'Drawing', hasPractical: true }
@@ -260,8 +275,8 @@ export function resolveSubjectName(rawName: string, gradeLevel: string, optional
         return (code === 1 || code === 3) ? "Pustak Kala" : "Home Science";
       }
     } else if (gradeNum >= 9) {
-      if (sub.includes('math / h.s.c')) {
-        return code === 1 ? "Mathematics" : "Home Science";
+      if (sub.includes('math / h.s.c') || sub.includes('math/h.sci.')) {
+        return "Math/H.Sci.";
       }
     }
   }

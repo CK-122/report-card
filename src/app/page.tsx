@@ -38,16 +38,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger,
-  DialogDescription,
-  DialogFooter
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import jspdf from "jspdf";
 import Papa from "papaparse";
@@ -101,20 +92,9 @@ export default function MarksheetProHome() {
   const [principalSign, setPrincipalSign] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState<number | null>(null);
   const [currentTemplate, setCurrentTemplate] = useState<MarksheetTemplate>(DEFAULT_TEMPLATE);
+  const [designNum, setDesignNum] = useState(2);
   
-  const [templateGrade, setTemplateGrade] = useState<string>("");
-  const [templateStudentCount, setTemplateStudentCount] = useState<number>(10);
-  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
-  const [pendingStudents, setPendingStudents] = useState<Student[]>([]);
-  const [isClassPromptOpen, setIsClassPromptOpen] = useState(false);
-  const [selectedPromptClass, setSelectedPromptClass] = useState<string>("");
-
   const { toast } = useToast();
-
-  const dataInputRef = useRef<HTMLInputElement>(null);
-  const logoInputRef = useRef<HTMLInputElement>(null);
-  const teacherSignInputRef = useRef<HTMLInputElement>(null);
-  const principalSignInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const savedTemplate = localStorage.getItem('marksheet_template');
@@ -128,286 +108,30 @@ export default function MarksheetProHome() {
       } catch (e) {}
     }
 
-    const savedStudents = localStorage.getItem('ck-report-students');
-    if (savedStudents) {
+    const loadStudents = async () => {
       try {
-        const parsed = JSON.parse(savedStudents);
-        if (parsed.length > 0) {
-          // Normalize existing data for case-insensitivity
-          const normalized = parsed.map((s: any) => ({
-            ...s,
-            class: (s.class || "").toUpperCase(),
-            gradeLevel: (s.gradeLevel || "1").toUpperCase()
-          }));
-          setStudents(normalized);
-          setDataLoaded(true);
-          const codes = Array.from(new Set(normalized.map((s: any) => s.schoolCode))) as string[];
-          if (codes.length === 1) setSelectedSchoolCode(codes[0]);
-          
-          // Save normalized back
-          localStorage.setItem('ck-report-students', JSON.stringify(normalized));
-        }
-      } catch (e) {}
-    }
-  }, []);
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const validationErrors: string[] = [];
-
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (h) => {
-        // More robust header normalization: Remove spaces AND underscores
-        return h.trim().toLowerCase()
-          .replace(/[\s_]+/g, '') // Remove spaces and underscores
-          .replace(/[^a-z0-9]/g, ''); // Remove other special characters
-      },
-      complete: (results) => {
-        const parsedStudents: Student[] = results.data.map((row: any, index: number) => {
-          const grades: Grade[] = [];
-          const gradeLevel = (row.gradelevel || row.gradeLevel || row.class || "1").toUpperCase();
-          const defaultSubjects = getSubjectsByGrade(gradeLevel);
-          const dobVal = formatDateToIndian(row.dob || row.date_of_birth || row.dateofbirth);
-          
-          for (let i = 1; i <= 20; i++) {
-            const subNameKey = `subject${i}name`;
-            let subjectNameVal = row[subNameKey];
-
-            // Check if any marks exist for this index even if name is missing
-            const tKeys = [1, 2, 3, 4].map(t => `subject${i}t${t}theory`);
-            const pKeys = [1, 2, 3, 4].map(t => `subject${i}t${t}practical`);
-            const hasAnyMarks = [...tKeys, ...pKeys].some(k => row[k] !== undefined && row[k] !== "");
-
-            // Pre-resolve the subject name if it exists or if we fall back to default
-            const optionalCode = parseInt(row.optionalcode || row.optional_code) || 1;
-            
-            if (subjectNameVal) {
-              subjectNameVal = resolveSubjectName(subjectNameVal, gradeLevel, optionalCode);
-            } else if (hasAnyMarks && defaultSubjects[i - 1]) {
-              subjectNameVal = resolveSubjectName(defaultSubjects[i - 1].name, gradeLevel, optionalCode);
-            }
-
-            if (subjectNameVal) {
-              const grade: Grade = {
-                subject: subjectNameVal,
-                term1: 0, term2: 0, term3: 0, term4: 0,
-                details: {
-                  term1: { theory: 0, practical: 0 },
-                  term2: { theory: 0, practical: 0 },
-                  term3: { theory: 0, practical: 0 },
-                  term4: { theory: 0, practical: 0 }
-                }
-              };
-
-              const maxT = getMaxTheoryMarks(gradeLevel);
-              const maxP = getMaxPracticalMarks(gradeLevel);
-
-              [1, 2, 3, 4].forEach(t => {
-                const theoryKey = `subject${i}t${t}theory`;
-                const practicalKey = `subject${i}t${t}practical`;
-                
-                const theory = parseInt(row[theoryKey]) || 0;
-                const practical = parseInt(row[practicalKey]) || 0;
-                
-                if (theory > maxT) {
-                  validationErrors.push(`${row.name || "Student"}: ${subjectNameVal} Theory (${theory}) > ${maxT} in T${t}`);
-                }
-                if (practical > maxP) {
-                  validationErrors.push(`${row.name || "Student"}: ${subjectNameVal} Practical (${practical}) > ${maxP} in T${t}`);
-                }
-
-                (grade as any)[`term${t}`] = theory + practical;
-                if (grade.details) {
-                  (grade.details as any)[`term${t}`] = { theory, practical };
-                }
-              });
-              grades.push(grade);
-            }
-          }
-
-          let rawCode = "1";
-          const schoolCodeVal = row.schoolcode || row.schoolCode || row.school_code;
-          if (schoolCodeVal) {
-            const parsed = parseInt(String(schoolCodeVal).trim());
-            if (!isNaN(parsed)) rawCode = String(parsed);
-          }
-
-          return {
-            id: row.id || index.toString(),
-            name: row.name || row.studentname || "",
-            fathersName: row.fathersname || row.fathername || "",
-            mothersName: row.mothersname || row.mothername || "",
-            dob: dobVal,
-            class: (row.class || "").toUpperCase(),
-            rollNo: row.rollno || row.roll_no || "",
-            srNo: row.srno || row.sr_no || "",
-            address: row.address || "",
-            schoolCode: rawCode,
-            gradeLevel: gradeLevel,
-            attendance: calculateAttendance(0), // Placeholder, will update after marks calculation
-            coScholastic: {
-              discipline: row.csdiscipline || row.cs_discipline || "A",
-              pt: row.cspt || row.cs_pt || "A",
-              music: row.csmusic || row.cs_music || "A",
-              art: row.csart || row.cs_art || "A",
-              yoga: row.csyoga || row.cs_yoga || "A"
-            },
-            optionalSubjectCode: parseInt(row.optionalcode || row.optional_code) || 1,
-            grades: grades
-          };
-        });
-
-        // Update attendance based on marks for each student
-        const studentsWithAttendance = parsedStudents.map(student => {
-          let totalPossible = student.grades.length * (getMaxTheoryMarks(student.gradeLevel) + getMaxPracticalMarks(student.gradeLevel)) * 4;
-          let totalObtained = student.grades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
-          
-          if (totalPossible === 0) totalPossible = 1;
-          const perc = (totalObtained / totalPossible) * 100;
-          return {
-            ...student,
-            attendance: calculateAttendance(perc)
-          };
-        });
-
-        if (studentsWithAttendance.length > 0) {
-          const missingClass = studentsWithAttendance.some(s => !s.class);
-          if (missingClass) {
-            setPendingStudents(studentsWithAttendance);
-            setIsClassPromptOpen(true);
-          } else {
-            setStudents(studentsWithAttendance);
-            setDataLoaded(true);
-            
-            if (validationErrors.length > 0) {
-              toast({
-                title: "Imported with Warnings",
-                description: `Found ${validationErrors.length} mark limit violations. Please check the data.`,
-                variant: "destructive"
-              });
-              console.warn("Validation Errors:", validationErrors);
-            } else {
-              toast({
-                title: "Data Loaded Successfully",
-                description: `${parsedStudents.length} student records found.`,
-              });
-            }
-            
-            const codes = Array.from(new Set(parsedStudents.map(s => s.schoolCode)));
-            if (codes.length === 1) setSelectedSchoolCode(codes[0]);
-            
-            localStorage.setItem('ck-report-students', JSON.stringify(parsedStudents));
-          }
-        }
-      },
-      error: (error) => {
-        toast({ title: "File Read Error", description: error.message, variant: "destructive" });
+        const res = await fetch('/api/students');
+        if (!res.ok) throw new Error('Failed to fetch students');
+        const data = await res.json();
+        setStudents(data);
+        setDataLoaded(true);
+        toast({ title: "Data Loaded", description: `Successfully loaded ${data.length} students from the system.`, variant: "default" });
+      } catch (error) {
+        console.error('Error loading students:', error);
+        toast({ title: "Load Error", description: "Failed to load student data from the local folder.", variant: "destructive" });
       }
-    });
-  };
+    };
 
-  const handleApplyClassToPending = () => {
-    if (!selectedPromptClass) {
-      toast({ title: "Select Class", description: "Please select a class to continue.", variant: "destructive" });
-      return;
+    loadStudents();
+  }, [toast]);
+
+  useEffect(() => {
+    if (selectedSchoolCode && SCHOOLS[selectedSchoolCode]?.logo) {
+      setLogo(SCHOOLS[selectedSchoolCode].logo);
     }
-    const updated = pendingStudents.map(s => ({ ...s, class: s.class || selectedPromptClass }));
-    setStudents(updated);
-    setDataLoaded(true);
-    localStorage.setItem('ck-report-students', JSON.stringify(updated));
-    setIsClassPromptOpen(false);
-    setPendingStudents([]);
-    toast({ title: "Import Complete", description: `Assigned ${selectedPromptClass} to missing records.` });
-  };
+  }, [selectedSchoolCode]);
 
-  const downloadSampleCSV = () => {
-    if (!templateGrade) {
-      toast({ title: "Select Grade", description: "Please select a grade level.", variant: "destructive" });
-      return;
-    }
 
-    const subjects = getSubjectsByGrade(templateGrade);
-
-    const baseHeaders = [
-      "id", "name", "fathersName", "mothersName", "dob", "class", 
-      "rollNo", "srNo", "address", "schoolCode", "gradeLevel", "optionalCode",
-      "cs_discipline", "cs_pt", "cs_music", "cs_art", "cs_yoga"
-    ];
-
-    const dynamicHeaders: string[] = [];
-    subjects.forEach((sub, index) => {
-      const idx = index + 1;
-      dynamicHeaders.push(`subject${idx}_name`);
-      [1, 2, 3, 4].forEach(t => {
-        dynamicHeaders.push(`subject${idx}_t${t}_theory`);
-        if (sub.hasPractical) {
-          dynamicHeaders.push(`subject${idx}_t${t}_practical`);
-        }
-      });
-    });
-
-    const fullHeaders = [...baseHeaders, ...dynamicHeaders];
-    let csvContent = fullHeaders.join(",") + "\n";
-
-    const currentSchoolCode = selectedSchoolCode || "1";
-    
-    for (let i = 1; i <= templateStudentCount; i++) {
-      const rowParts: string[] = [
-        i.toString(), // id
-        `Student ${i}`, // name
-        "Father Name", // fathersName
-        "Mother Name", // mothersName
-        "2010-01-01", // dob
-        templateGrade, // class
-        i.toString(), // rollNo
-        `SR-${1000 + i}`, // srNo
-        "Address Line", // address
-        currentSchoolCode, // schoolCode
-        templateGrade, // gradeLevel
-        "1", // optionalCode
-        "A", "A", "A", "A", "A" // co-scholastic
-      ];
-
-      subjects.forEach((sub) => {
-        rowParts.push(`"${sub.name}"`);
-        [1, 2, 3, 4].forEach(() => {
-          rowParts.push("");
-          if (sub.hasPractical) {
-            rowParts.push("");
-          }
-        });
-      });
-
-      csvContent += rowParts.join(",") + "\n";
-    }
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Template_Class_${templateGrade}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    setIsTemplateDialogOpen(false);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setter(reader.result as string);
-        toast({ title: "Asset Updated", description: `${file.name} uploaded successfully.` });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const availableSchools = useMemo(() => {
     const codes = Array.from(new Set(students.map(s => s.schoolCode))).filter(Boolean);
@@ -415,10 +139,8 @@ export default function MarksheetProHome() {
   }, [students]);
 
   const availableClasses = useMemo(() => {
-    if (!selectedSchoolCode) return [];
     return Array.from(new Set(
       students
-        .filter(s => s.schoolCode === selectedSchoolCode)
         .map(s => (s.class || "").toUpperCase())
         .filter(Boolean)
     )).sort((a, b) => {
@@ -430,7 +152,7 @@ export default function MarksheetProHome() {
       if (idxB !== -1) return 1;
       return String(a).localeCompare(String(b));
     });
-  }, [students, selectedSchoolCode]);
+  }, [students]);
 
   const filteredStudents = useMemo(() => {
     return students.filter(s => 
@@ -478,8 +200,11 @@ export default function MarksheetProHome() {
     }).sort((a, b) => getSubjectPriority(a.subjectName) - getSubjectPriority(b.subjectName));
   };
 
-  const generateVectorPDF = async (designNum: number) => {
-    if (filteredStudents.length === 0) return;
+  const generateAllReportCards = async (designNum: number, targetClass?: string) => {
+    const className = targetClass || selectedClass;
+    const classStudents = students.filter(s => (s.class || "").toUpperCase() === className.toUpperCase());
+    if (classStudents.length === 0) return;
+    
     setIsGenerating(designNum);
     await new Promise(resolve => setTimeout(resolve, 800));
 
@@ -494,11 +219,44 @@ export default function MarksheetProHome() {
     const HEADER_HEIGHT = 10;
     const GAP_MM = 6;
 
-    const drawSecurityPattern = (doc: jspdf) => {
-      doc.setFillColor('#E8E8E8');
-      for (let x = MARGIN + 5; x < CONTENT_WIDTH + MARGIN - 5; x += 4) {
-        for (let y = MARGIN + 5; y < HEIGHT - MARGIN - 5; y += 4) {
-          doc.circle(x, y, 0.12, 'F');
+    const drawSecurityPattern = (doc: jspdf, schoolName: string = "") => {
+      // Full Page Cream Background for Design 3
+      if (designNum === 3) {
+        doc.setFillColor('#fffbeb'); 
+        doc.rect(0, 0, WIDTH, HEIGHT, 'F');
+        
+        // Diagonal School Name Pattern
+        doc.saveGraphicsState();
+        try {
+          // @ts-ignore
+          const gstate = new doc.GState({ opacity: 0.3 });
+          doc.setGState(gstate);
+          doc.setTextColor('#E0E0E0');
+          doc.setFontSize(9);
+          doc.setFont("times", "bold");
+          
+          const text = (schoolName || "OFFICIAL REPORT CARD").toUpperCase();
+          const stepX = 70;
+          const stepY = 15;
+          
+          for (let y = MARGIN; y < HEIGHT - MARGIN; y += stepY) {
+            for (let x = -30; x < WIDTH + 30; x += stepX) {
+              // Alternate offset for staggered look
+              const offsetX = (Math.floor(y / stepY) % 2) * (stepX / 2);
+              doc.text(text, x + offsetX, y, { angle: 0 });
+            }
+          }
+        } catch (e) {
+          console.error("GState error", e);
+        }
+        doc.restoreGraphicsState();
+      } else {
+        // Classic Micro-dots for other designs
+        doc.setFillColor('#E8E8E8');
+        for (let x = MARGIN + 5; x < CONTENT_WIDTH + MARGIN - 5; x += 4) {
+          for (let y = MARGIN + 5; y < HEIGHT - MARGIN - 5; y += 4) {
+            doc.circle(x, y, 0.12, 'F');
+          }
         }
       }
     };
@@ -522,101 +280,176 @@ export default function MarksheetProHome() {
                        percentage >= 71 ? "B" : 
                        percentage >= 61 ? "C" : "D";
 
-      drawSecurityPattern(doc);
+      const currentSchoolInfo = SCHOOLS[student.schoolCode] || SCHOOLS["1"];
+      drawSecurityPattern(doc, currentSchoolInfo.name);
+      const sLogo = designNum === 3 ? (currentSchoolInfo.logoColor || currentSchoolInfo.logo) : (currentSchoolInfo.logo || (window as any)._currentLogo || logo);
       
-      if (logo) {
+      if (designNum === 3 && sLogo) {
         doc.saveGraphicsState();
         try {
           // @ts-ignore
-          const gstate = new doc.GState({ opacity: 0.1 });
+          const gstate = new doc.GState({ opacity: 0.15 });
           doc.setGState(gstate);
+          doc.addImage(sLogo, 'PNG', (WIDTH - 110) / 2, (HEIGHT - 110) / 2, 110, 110);
         } catch (e) {}
-        doc.addImage(logo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
         doc.restoreGraphicsState();
       }
 
-      doc.setLineWidth(1.2);
-      doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
-      doc.setLineWidth(0.3);
-      doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+      if (designNum === 3) {
+        // High-End Guilloche Border for Design 3
+        doc.setDrawColor('#1e3a8a');
+        doc.setLineWidth(1.5);
+        doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
+        
+        // Inner Patterned Lines
+        doc.setLineWidth(0.2);
+        for (let i = 0.8; i < 2.5; i += 0.3) {
+          doc.setDrawColor(i > 1.5 ? '#f59e0b' : '#1e3a8a');
+          doc.rect(MARGIN + i, MARGIN + i, CONTENT_WIDTH - (i * 2), HEIGHT - (MARGIN * 2) - (i * 2));
+        }
+        
+        // Corner Embellishments
+        doc.setFillColor('#1e3a8a');
+        const s = 4;
+        [
+          [MARGIN, MARGIN], 
+          [MARGIN + CONTENT_WIDTH - s, MARGIN], 
+          [MARGIN, MARGIN + HEIGHT - (MARGIN * 2) - s], 
+          [MARGIN + CONTENT_WIDTH - s, MARGIN + HEIGHT - (MARGIN * 2) - s]
+        ].forEach(pos => {
+          doc.rect(pos[0] - 0.5, pos[1] - 0.5, s + 1, s + 1, 'F');
+          doc.setDrawColor('#f59e0b');
+          doc.rect(pos[0] + 0.5, pos[1] + 0.5, s - 1, s - 1);
+        });
+      } else {
+        doc.setLineWidth(1.2);
+        doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
+        doc.setLineWidth(0.3);
+        doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+      }
 
       const baseTopY = currentTemplate.offsets.headerY - 3;
-      const logoY = designNum === 2 ? baseTopY + 18 : baseTopY + 11;
-      if (logo) doc.addImage(logo, 'PNG', TABLE_X, logoY, 20, 20);
+      const logoY = (designNum === 2 || designNum === 3) ? baseTopY + 19 : baseTopY + 11;
+      if (sLogo) doc.addImage(sLogo, 'PNG', TABLE_X, logoY, 20, 20);
 
       doc.setFont("times", "bold");
       doc.setFontSize(34);
       if (designNum === 2) {
         doc.setFillColor('#000000');
-        doc.rect(TABLE_X, baseTopY + 4, TABLE_WIDTH, 14, 'F');
+        doc.rect(TABLE_X, baseTopY + 5, TABLE_WIDTH, 14, 'F');
         doc.setTextColor('#FFFFFF');
+      } else if (designNum === 3) {
+        doc.setFillColor('#1e3a8a');
+        doc.rect(TABLE_X, baseTopY + 5, TABLE_WIDTH, 14, 'F');
+        
+        doc.setTextColor('#FFFFFF');
+        doc.setDrawColor('#f59e0b');
+        doc.setLineWidth(1);
+        doc.line(TABLE_X, baseTopY + 19, TABLE_X + TABLE_WIDTH, baseTopY + 19);
       } else {
         doc.setTextColor('#000000');
       }
-      const schoolNameX = designNum === 2 ? TABLE_X + (TABLE_WIDTH / 2) : (selectedSchoolCode === "3" ? (WIDTH / 2) + 7 : (WIDTH / 2) + 13);
-      doc.text(schoolInfo.name, schoolNameX, baseTopY + 15, { align: "center" });
+      const sInfo = (window as any)._currentSchoolInfo || schoolInfo;
+      
+      const schoolNameX = designNum === 2 || designNum === 3 ? TABLE_X + (TABLE_WIDTH / 2) : (sInfo.code === "3" ? (WIDTH / 2) + 7 : (WIDTH / 2) + 13);
+      doc.text(sInfo.name, schoolNameX, baseTopY + 16, { align: "center" });
       
       doc.setTextColor('#000000');
-      doc.setFont("times", "bolditalic");
+      doc.setFont("times", "bold");
       doc.setFontSize(16);
       const secondaryInfoX = (WIDTH / 2) + 4;
-      doc.text(schoolInfo.tagline, secondaryInfoX, baseTopY + 23, { align: "center" });
-      doc.text(schoolInfo.address, secondaryInfoX, baseTopY + 29, { align: "center" });
-      doc.text(`Phone no : ${schoolInfo.contact}  |  Email : ${schoolInfo.email}`, secondaryInfoX, baseTopY + 35, { align: "center" });
+      const taglineY = (designNum === 2 || designNum === 3) ? baseTopY + 25 : baseTopY + 23;
+      doc.text(sInfo.tagline, secondaryInfoX, taglineY, { align: "center" });
+      doc.text(sInfo.address, secondaryInfoX, taglineY + 6, { align: "center" });
+      doc.text(`Phone no : ${sInfo.contact}  |  Email : ${sInfo.email}`, secondaryInfoX, taglineY + 12, { align: "center" });
        
       const headingY = baseTopY + 37 + 2;
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
       doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+      doc.setLineWidth(0.5);
       doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT);
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.setFontSize(20);
       doc.text("PROGRESS REPORT CARD (2025-26)", WIDTH / 2, headingY + 7, { align: "center" });
 
       doc.setTextColor('#000000');
       let currentY = headingY + HEADER_HEIGHT + GAP_MM;
       
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
-      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+      doc.setLineWidth(designNum === 3 ? 0.4 : 0.3);
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, designNum === 3 ? 'FD' : 'F');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.setFontSize(16); doc.setFont("times", "bold");
       doc.text("STUDENT PROFILE", WIDTH / 2, currentY + 7, { align: "center" });
       doc.setTextColor('#000000');
       
-      currentY += HEADER_HEIGHT + 9;
+      const cardY = currentY + HEADER_HEIGHT;
       const col1 = TABLE_X + 2; const col2 = col1 + 42;
       const col4 = TABLE_X + 110; const col5 = col4 + 38;
-      doc.setFontSize(13);
+      doc.setFontSize(12);
       const formatDate = (dateStr: string) => {
         if (!dateStr || dateStr === "N/A" || dateStr.trim() === "") return "XX/XX/XXXX";
         return formatDateToIndian(dateStr);
       };
       const info = [
         { l: "STUDENT NAME:", v: String(student.name).toUpperCase(), l2: "CLASS / ROLL:", v2: `${String(student.class).toUpperCase()} / ${String(student.rollNo).toUpperCase()}` },
-        { l: "FATHER'S NAME:", v: String(student.fathersName).toUpperCase(), l2: "DATE OF BIRTH:", v2: formatDate(student.dob) },
+        { l: "FATHER'S NAME:", v: String(student.fathersName).toUpperCase(), l2: "D.O.B:", v2: formatDate(student.dob) },
         { l: "MOTHER'S NAME:", v: String(student.mothersName).toUpperCase(), l2: "SR NO:", v2: String(student.srNo).toUpperCase() }
       ];
-      info.forEach(row => {
-        doc.setFont("times", "bold"); doc.text(row.l, col1, currentY);
-        doc.setFont("times", "bold"); doc.text(row.v, col2, currentY);
-        doc.setFont("times", "bold"); doc.text(row.l2, col4, currentY);
-        doc.setFont("times", "bold"); doc.text(row.v2, col5, currentY);
-        currentY += 9;
-      });
+      if (designNum === 3) {
+        // Modern Card Layout for Design 3 Profile
+        const padding = 6;
+        const cardHeight = (9 * 4) + 6;
+        doc.setDrawColor('#f59e0b');
+        doc.setLineWidth(0.4);
+        (doc as any).roundedRect(TABLE_X, cardY, TABLE_WIDTH, cardHeight, 1, 1, 'D');
+        
+        // Internal data
+        let innerY = cardY + 8;
+        info.forEach((row, idx) => {
+          doc.setFontSize(11); doc.setTextColor('#1e3a8a');
+          doc.setFont("times", "bold"); doc.text(row.l, col1, innerY);
+          doc.text(row.l2, col4, innerY);
+          
+          doc.setFontSize(13); doc.setTextColor('#000000');
+          doc.setFont("times", "bold"); doc.text(row.v, col1 + 35, innerY);
+          doc.text(row.v2, col4 + 32, innerY);
+          innerY += 9;
+        });
+        
+        doc.setFontSize(11); doc.setTextColor('#1e3a8a');
+        doc.text("ADDRESS:", col1, innerY);
+        doc.setFontSize(12); doc.setTextColor('#000000');
+        doc.text(student.address?.toUpperCase() || "N/A", col1 + 35, innerY);
+        currentY = cardY + cardHeight;
+      } else {
+        info.forEach(row => {
+          doc.setFont("times", "bold"); doc.text(row.l, col1, cardY + 9);
+          doc.setFont("times", "bold"); doc.text(row.v, col2, cardY + 9);
+          doc.setFont("times", "bold"); doc.text(row.l2, col4, cardY + 9);
+          doc.setFont("times", "bold"); doc.text(row.v2, col5, cardY + 9);
+          currentY += 9;
+        });
 
-      doc.setFont("times", "bold"); doc.text("ADDRESS:", col1, currentY);
-      doc.setFont("times", "bold"); doc.text(student.address?.toUpperCase() || "N/A", col2, currentY);
-      
-      let startProfileY = currentY - (9 * 3) - 9 - HEADER_HEIGHT; 
-      let profileTotalHeight = currentY - startProfileY + 4;
-      doc.rect(TABLE_X, startProfileY, TABLE_WIDTH, profileTotalHeight);
+        doc.setFont("times", "bold"); doc.text("ADDRESS:", col1, currentY + 9);
+        doc.setFont("times", "bold"); doc.text(student.address?.toUpperCase() || "N/A", col2, currentY + 9);
+        
+        let startProfileY = cardY; 
+        let profileTotalHeight = (currentY + 9) - cardY + 4;
+        doc.rect(TABLE_X, startProfileY, TABLE_WIDTH, profileTotalHeight);
+        currentY = cardY + profileTotalHeight;
+      }
       
       currentY += 6;
 
       currentY += GAP_MM;
       const subCol = TABLE_WIDTH * 0.23; const mCol = TABLE_WIDTH * 0.16;
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT);
       
       doc.text("Subjects", TABLE_X + 5, currentY + 7);
@@ -630,15 +463,22 @@ export default function MarksheetProHome() {
       
       let t1Sum = 0, t2Sum = 0, t3Sum = 0, t4Sum = 0;
 
-      studentGrades.forEach(g => {
+      studentGrades.forEach((g, idx) => {
         t1Sum += g.term1; t2Sum += g.term2; t3Sum += g.term3; t4Sum += g.term4;
+        
+        
+        doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
         doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
         
         doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
         [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
 
-        doc.setFontSize(14); doc.text((g as any).subjectName, TABLE_X + 5, currentY + 6);
-        doc.setFontSize(13);
+        doc.setFontSize(14); 
+        if (designNum === 3) doc.setTextColor('#1e3a8a');
+        doc.text((g as any).subjectName, TABLE_X + 5, currentY + 6);
+        doc.setTextColor('#000000');
+        
+        doc.setFontSize( designNum === 3 ? 12 : 13);
         const terms = ['term1', 'term2', 'term3', 'term4'];
         terms.forEach((t, i) => {
           const val = g.details?.[t as keyof typeof g.details];
@@ -651,8 +491,6 @@ export default function MarksheetProHome() {
       });
 
       doc.setFont("times", "bold");
-      doc.setFillColor('#F5F5F5');
-      doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT, 'F');
       doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
       doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
       [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
@@ -663,10 +501,11 @@ export default function MarksheetProHome() {
       currentY += ROW_HEIGHT;
 
       currentY += GAP_MM;
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
       doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT + ROW_HEIGHT);
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       const sumW = TABLE_WIDTH / 4;
       
       [1,2,3].forEach(i => doc.line(TABLE_X + (sumW*i), currentY + HEADER_HEIGHT, TABLE_X + (sumW*i), currentY + HEADER_HEIGHT + ROW_HEIGHT));
@@ -681,9 +520,10 @@ export default function MarksheetProHome() {
       currentY += HEADER_HEIGHT + ROW_HEIGHT + GAP_MM;
       const halfW = (TABLE_WIDTH / 2) - 3;
       
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 4));
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.line(TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT, TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 4));
 
       doc.setFont("times", "bold"); doc.text("CO-SCHOLASTIC", TABLE_X + halfW/2, currentY + 7, { align: "center" });
@@ -694,15 +534,18 @@ export default function MarksheetProHome() {
 
       activities.forEach((act, idx) => {
         const y = currentY + HEADER_HEIGHT + (ROW_HEIGHT * idx);
+        if (designNum === 3) doc.setTextColor('#1e3a8a');
         doc.setFont("times", "bold"); doc.text(act, TABLE_X + 2, y + 6);
+        doc.setTextColor('#000000');
         doc.setFont("times", "bold"); doc.text(values[idx] || "A", TABLE_X + halfW - 5, y + 6, { align: "right" });
         doc.line(TABLE_X, y + ROW_HEIGHT, TABLE_X + halfW, y + ROW_HEIGHT);
       });
 
       const attX = TABLE_X + halfW + 6;
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(attX, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(attX, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(attX, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 3));
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.line(attX + (halfW * 0.7), currentY + HEADER_HEIGHT, attX + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 3));
 
       doc.setFont("times", "bold"); doc.text("ATTENDANCE", attX + halfW/2, currentY + 7, { align: "center" });
@@ -714,34 +557,64 @@ export default function MarksheetProHome() {
       ];
       attData.forEach((row, idx) => {
         const y = currentY + HEADER_HEIGHT + (ROW_HEIGHT * idx);
+        if (designNum === 3) doc.setTextColor('#1e3a8a');
         doc.setFont("times", "bold"); doc.text(row.l, attX + 2, y + 6);
+        doc.setTextColor('#000000');
         doc.setFont("times", "bold"); doc.text(row.v.toString(), attX + halfW - 5, y + 6, { align: "right" });
         if (idx < 2) doc.line(attX, y + ROW_HEIGHT, attX + halfW, y + ROW_HEIGHT);
       });
     };
 
     const drawBackPage = (doc: jspdf, student: Student) => {
-      drawSecurityPattern(doc);
-      if (logo) {
+      drawSecurityPattern(doc, SCHOOLS[student.schoolCode]?.name || "");
+      const sLogo = (window as any)._currentLogo || logo;
+      if (designNum === 3 && sLogo) {
         doc.saveGraphicsState();
         try {
           // @ts-ignore
           const gstate = new doc.GState({ opacity: 0.1 });
           doc.setGState(gstate);
+          doc.addImage(sLogo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
         } catch (e) {}
-        doc.addImage(logo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
         doc.restoreGraphicsState();
       }
 
-      doc.setLineWidth(1.2); doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
-      doc.setLineWidth(0.3); doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+      if (designNum === 3) {
+        // High-End Guilloche Border for Design 3 (Sync with Front)
+        doc.setDrawColor('#f59e0b');
+        doc.setLineWidth(1.5);
+        doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
+        
+        doc.setLineWidth(0.2);
+        for (let i = 0.8; i < 2.5; i += 0.3) {
+          doc.setDrawColor(i > 1.5 ? '#f59e0b' : '#1e3a8a');
+          doc.rect(MARGIN + i, MARGIN + i, CONTENT_WIDTH - (i * 2), HEIGHT - (MARGIN * 2) - (i * 2));
+        }
+        
+        // Corner Embellishments (Sync with Front)
+        doc.setFillColor('#1e3a8a');
+        const s = 4;
+        [
+          [MARGIN, MARGIN], 
+          [MARGIN + CONTENT_WIDTH - s, MARGIN], 
+          [MARGIN, MARGIN + HEIGHT - (MARGIN * 2) - s], 
+          [MARGIN + CONTENT_WIDTH - s, MARGIN + HEIGHT - (MARGIN * 2) - s]
+        ].forEach(pos => {
+          doc.rect(pos[0] - 0.5, pos[1] - 0.5, s + 1, s + 1, 'F');
+          doc.setDrawColor('#f59e0b');
+          doc.rect(pos[0] + 0.5, pos[1] + 0.5, s - 1, s - 1);
+        });
+      } else {
+        doc.setLineWidth(1.2); doc.rect(MARGIN, MARGIN, CONTENT_WIDTH, HEIGHT - (MARGIN * 2));
+        doc.setLineWidth(0.3); doc.rect(MARGIN + 1.5, MARGIN + 1.5, CONTENT_WIDTH - 3, HEIGHT - (MARGIN * 2) - 3);
+      }
 
       let backY = 10;
       
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); 
-      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 25);
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.setFont("times", "bold"); 
       doc.text("RESULT & PROMOTION", WIDTH / 2, backY + 7, { align: "center" });
       
@@ -757,9 +630,10 @@ export default function MarksheetProHome() {
       
       backY += HEADER_HEIGHT + 25 + (GAP_MM * 2);
 
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + (ROW_HEIGHT * 5));
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       
       doc.line(TABLE_X + (TABLE_WIDTH * 0.35), backY + HEADER_HEIGHT, TABLE_X + (TABLE_WIDTH * 0.35), backY + HEADER_HEIGHT + (ROW_HEIGHT * 5));
       doc.line(TABLE_X + (TABLE_WIDTH * 0.65), backY + HEADER_HEIGHT, TABLE_X + (TABLE_WIDTH * 0.65), backY + HEADER_HEIGHT + (ROW_HEIGHT * 5));
@@ -785,9 +659,10 @@ export default function MarksheetProHome() {
       backY += HEADER_HEIGHT + (ROW_HEIGHT * 5);
 
       backY += GAP_MM * 2;
-      doc.setFillColor(designNum === 2 ? '#000000' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 65);
-      doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.setFont("times", "bold"); doc.text("ASSESSMENT SCHEME & SCHOOL RULES", WIDTH / 2, backY + 7, { align: "center" });
       doc.setTextColor('#000000');
       const _termMax = getMaxMarksPerTerm(student.gradeLevel);
@@ -820,12 +695,15 @@ export default function MarksheetProHome() {
       ];
 
       slots.forEach(slot => {
-        doc.setFillColor(designNum === 2 ? '#000000' : '#E0E0E0');
+        doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#E0E0E0');
         doc.rect(slot.x, signY, slotW, 6, 'F');
-        doc.setTextColor(designNum === 2 ? '#FFFFFF' : '#000000');
+        doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
         doc.setFontSize(14); doc.setFont("times", "bold");
         doc.text(slot.l, slot.x + slotW/2, signY + 4, { align: "center" });
-        doc.setDrawColor('#000000');
+        doc.setTextColor('#000000');
+        
+        doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+        doc.setLineWidth(designNum === 3 ? 0.5 : 0.3);
         doc.rect(slot.x, signY, slotW, 25);
         if (slot.img) {
           doc.addImage(slot.img, 'PNG', slot.x + 5, signY + 8, slotW - 10, 14);
@@ -834,239 +712,174 @@ export default function MarksheetProHome() {
       doc.setTextColor('#000000');
     };
 
-    try {
-      const allStudentTotals = filteredStudents.map(s => {
+    const downloadBlob = (blob: Blob, filename: string) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    const generateForSchool = async (schoolCode: string, schoolStudents: Student[]) => {
+      if (schoolStudents.length === 0) return;
+      
+      const school = SCHOOLS[schoolCode] || SCHOOLS["1"];
+      const sLogo = designNum === 3 ? (school.logoColor || school.logo) : (school.logo || logo);
+      
+      const allStudentTotals = schoolStudents.map(s => {
         const gs = getFilteredGrades(s);
         return gs.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
       });
       const sortedTotals = [...allStudentTotals].sort((a, b) => b - a);
 
-      // 1. Generate Front Pages PDF
       const docFront = new jspdf("p", "mm", "a4");
-      for (let i = 0; i < filteredStudents.length; i++) {
+      for (let i = 0; i < schoolStudents.length; i++) {
         if (i > 0) docFront.addPage();
         const currentTotal = allStudentTotals[i];
         const rank = sortedTotals.indexOf(currentTotal) + 1;
-        drawFrontPage(docFront, filteredStudents[i], rank);
+        // Use a wrapper that ensures the correct school context for headers
+        const originalSchoolInfo = schoolInfo;
+        const originalLogo = logo;
+        (window as any)._currentSchoolInfo = school;
+        (window as any)._currentLogo = sLogo;
+        
+        drawFrontPage(docFront, schoolStudents[i], rank);
       }
 
-      // 2. Generate Back Page PDF (Single Page)
       const docBack = new jspdf("p", "mm", "a4");
-      drawBackPage(docBack, filteredStudents[0]);
+      drawBackPage(docBack, schoolStudents[0]);
 
-      // 3. Create ZIP
       const zip = new JSZip();
-      zip.file(`${selectedClass}_Front_Pages.pdf`, docFront.output("blob"));
-      zip.file(`${selectedClass}_Back_Page.pdf`, docBack.output("blob"));
+      const safeSchoolName = school.name.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      zip.file(`${className}_Front_Pages.pdf`, docFront.output("blob"));
+      zip.file(`${className}_Back_Page.pdf`, docBack.output("blob"));
 
       const content = await zip.generateAsync({ type: "blob" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(content);
-      link.download = `${selectedClass}_Reports.zip`;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      downloadBlob(content, `${safeSchoolName}_${className}_Reports.zip`);
+    };
 
-    } catch (e) { console.error(e); } finally { setIsGenerating(null); }
+    try {
+      // Group all students in this class by schoolCode
+      const classStudents = students.filter(s => (s.class || "").toUpperCase() === className.toUpperCase());
+      const studentsBySchool: Record<string, Student[]> = {};
+      
+      classStudents.forEach(s => {
+        const sCode = s.schoolCode || "1";
+        if (!studentsBySchool[sCode]) studentsBySchool[sCode] = [];
+        studentsBySchool[sCode].push(s);
+      });
+
+      const schoolCodes = Object.keys(studentsBySchool);
+      for (let i = 0; i < schoolCodes.length; i++) {
+        const sCode = schoolCodes[i];
+        setIsGenerating(Math.round(((i + 1) / schoolCodes.length) * 100));
+        await generateForSchool(sCode, studentsBySchool[sCode]);
+        // Small delay to prevent browser blocking multiple downloads
+        if (i < schoolCodes.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+      }
+
+    } catch (e) { 
+      console.error(e); 
+      toast({ title: "Generation Error", description: "Failed to generate report cards.", variant: "destructive" });
+    } finally { 
+      setIsGenerating(null); 
+    }
   };
+
+
 
   return (
     <AppShell>
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div className="text-center space-y-2">
+      <div className="max-w-4xl mx-auto space-y-8 py-10">
+        <div className="text-center space-y-2 mb-12">
           <h1 className="text-4xl font-black tracking-tight text-primary">CK REPORT PRO</h1>
           <p className="text-muted-foreground uppercase text-xs font-bold tracking-[0.2em]">Institutional Report Generator</p>
         </div>
 
-        <input type="file" ref={dataInputRef} className="hidden" accept=".csv, .xlsx" onChange={handleFileUpload} />
-        <input type="file" ref={logoInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, setLogo)} />
-        <input type="file" ref={teacherSignInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, setTeacherSign)} />
-        <input type="file" ref={principalSignInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, setPrincipalSign)} />
-
-        <Card className={`border-2 transition-all ${dataLoaded ? 'border-green-500 bg-green-50/5' : 'border-dashed'}`}>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <span className="flex items-center justify-center size-7 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
-                Academic Data Source
-              </CardTitle>
-              <CardDescription className="text-xs">Identify School & Class from uploaded data.</CardDescription>
-            </div>
-            {dataLoaded && <CheckCircle2 className="size-5 text-green-500" />}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button variant={dataLoaded ? "outline" : "default"} className="w-full h-12 gap-2" onClick={() => dataInputRef.current?.click()}>
-              <FileUp className="size-4" />
-              {dataLoaded ? "Replace Data Source" : "Upload Excel/CSV File"}
-            </Button>
-            
-            <div className="flex justify-center">
-              <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen} modal={false}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm" className="text-[10px] uppercase font-bold text-muted-foreground hover:text-primary gap-1">
-                    <FileSpreadsheet className="size-3" />
-                    Download Sample Template
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Generate Custom Template</DialogTitle>
-                    <DialogDescription>Select a class and student count to get a pre-formatted template.</DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label className="text-right">Class</Label>
-                      <Select onValueChange={setTemplateGrade} value={templateGrade}>
-                        <SelectTrigger className="col-span-3">
-                          <SelectValue placeholder="Select Class" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map(lvl => (
-                            <SelectItem key={lvl} value={lvl}>Class {lvl}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label className="text-right">Students</Label>
-                      <Input
-                        type="number"
-                        min="1"
-                        max="500"
-                        value={templateStudentCount}
-                        onChange={(e) => setTemplateStudentCount(parseInt(e.target.value) || 1)}
-                        className="col-span-3"
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={downloadSampleCSV} disabled={!templateGrade} className="w-full">
-                      Download Template
+        {dataLoaded ? (
+          <div className="max-w-md mx-auto">
+            <Card className="border-none shadow-xl bg-white/50 backdrop-blur-sm">
+              <CardHeader className="text-center pb-2">
+                <CardTitle className="text-sm font-bold text-primary uppercase flex items-center justify-center gap-2">
+                  <UserCircle className="size-4" /> SELECT CLASS TO GENERATE
+                </CardTitle>
+                <CardDescription className="text-[10px]">Report cards will download automatically for all schools.</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4 pb-8 px-8">
+                <div className="space-y-4">
+                  <div className="flex justify-center gap-2 mb-4">
+                    <Button 
+                      variant={designNum === 1 ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => setDesignNum(1)}
+                      className="h-8 text-[10px] font-bold uppercase tracking-wider"
+                    >
+                      Classic
                     </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardContent>
-        </Card>
+                    <Button 
+                      variant={designNum === 2 ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => setDesignNum(2)}
+                      className="h-8 text-[10px] font-bold uppercase tracking-wider"
+                    >
+                      Dark Header
+                    </Button>
+                    <Button 
+                      variant={designNum === 3 ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => setDesignNum(3)}
+                      className={`h-8 text-[10px] font-bold uppercase tracking-wider ${designNum === 3 ? 'bg-[#1e3a8a] text-white hover:bg-[#1e3a8a]/90' : ''}`}
+                    >
+                      Colorful
+                    </Button>
+                  </div>
 
-        {dataLoaded && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card className="border-none shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
-                  <School className="size-3" /> Institution
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Select onValueChange={setSelectedSchoolCode} value={selectedSchoolCode}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Identify School..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableSchools.map(school => (
-                      <SelectItem key={school.code} value={school.code}>{school.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
-
-            <Card className="border-none shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
-                  <UserCircle className="size-3" /> Cohort
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Select 
-                  onValueChange={setSelectedClass} 
-                  value={selectedClass}
-                  disabled={!selectedSchoolCode}
-                >
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Select Class..." />
+                  <Select 
+                    onValueChange={(val) => {
+                      setSelectedClass(val);
+                      if (val) generateAllReportCards(designNum, val);
+                    }} 
+                    value={selectedClass}
+                  >
+                  <SelectTrigger className="h-14 text-lg font-bold border-2 border-primary/20 hover:border-primary transition-all shadow-md">
+                    <SelectValue placeholder="Chose Class..." />
                   </SelectTrigger>
                   <SelectContent>
                     {availableClasses.map(cls => (
-                      <SelectItem key={cls} value={cls}>{cls}</SelectItem>
+                      <SelectItem key={cls} value={cls} className="font-bold py-3 text-lg">Class {cls}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+
+                {isGenerating !== null && (
+                  <div className="mt-8 space-y-3">
+                    <div className="flex items-center justify-between text-[9pt] font-black uppercase text-primary">
+                      <span>Generating Report Cards...</span>
+                      <span>Please wait</span>
+                    </div>
+                    <Progress value={isGenerating} className="h-2" />
+                  </div>
+                )}
+                </div>
               </CardContent>
             </Card>
+            
+            <p className="text-center mt-6 text-[10px] text-muted-foreground uppercase font-bold tracking-widest animate-pulse">
+              System is Ready • {students.length} Records Loaded
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 space-y-4">
+            <Loader2 className="size-10 animate-spin text-primary opacity-20" />
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Syncing Data Store...</p>
           </div>
         )}
 
-        {selectedClass && (
-          <Card className="border-none shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Finalize Assets</CardTitle>
-              <CardDescription className="text-xs">Branding and signatures.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Button variant="outline" className="h-24 flex-col gap-2 border-dashed" onClick={() => logoInputRef.current?.click()}>
-                  {logo ? <img src={logo} className="h-12" alt="Logo" /> : <ImageIcon className="size-6 opacity-20" />}
-                  <span className="text-[10px] font-bold uppercase">Upload Logo</span>
-                </Button>
-                <Button variant="outline" className="h-24 flex-col gap-2 border-dashed" onClick={() => teacherSignInputRef.current?.click()}>
-                  {teacherSign ? <img src={teacherSign} className="h-12" alt="Teacher Sign" /> : <PenTool className="size-6 opacity-20" />}
-                  <span className="text-[10px] font-bold uppercase">Teacher Sign</span>
-                </Button>
-                <Button variant="outline" className="h-24 flex-col gap-2 border-dashed" onClick={() => principalSignInputRef.current?.click()}>
-                  {principalSign ? <img src={principalSign} className="h-12" alt="Principal Sign" /> : <PenTool className="size-6 opacity-20" />}
-                  <span className="text-[10px] font-bold uppercase">Principal Sign</span>
-                </Button>
-              </div>
-              <div className="pt-6 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button 
-                  className="h-16 text-md font-black gap-3 shadow-lg"
-                  onClick={() => generateVectorPDF(1)}
-                  disabled={isGenerating !== null}
-                >
-                  {isGenerating === 1 ? <Loader2 className="animate-spin" /> : <Download />}
-                  DESIGN 1 (CLASSIC)
-                </Button>
-                <Button 
-                  className="h-16 text-md font-black gap-3 bg-black text-white hover:bg-gray-900 shadow-lg"
-                  onClick={() => generateVectorPDF(2)}
-                  disabled={isGenerating !== null}
-                >
-                  {isGenerating === 2 ? <Loader2 className="animate-spin" /> : <Download />}
-                  DESIGN 2 (DARK HEADER)
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        {/* Missing Class Prompt */}
-        <Dialog open={isClassPromptOpen} onOpenChange={setIsClassPromptOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Missing Class Data</DialogTitle>
-              <DialogDescription>
-                Some students in your CSV are missing a "Class". Please select a class to assign to all these records.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Label>Assign to Class</Label>
-              <Select onValueChange={setSelectedPromptClass} value={selectedPromptClass}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Class" />
-                </SelectTrigger>
-                <SelectContent>
-                  {['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map(lvl => (
-                    <SelectItem key={lvl} value={lvl}>Class {lvl}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsClassPromptOpen(false)}>Cancel</Button>
-              <Button onClick={handleApplyClassToPending}>Import All</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </AppShell>
   );
