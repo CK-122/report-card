@@ -93,8 +93,25 @@ export default function MarksheetProHome() {
   const [isGenerating, setIsGenerating] = useState<number | null>(null);
   const [currentTemplate, setCurrentTemplate] = useState<MarksheetTemplate>(DEFAULT_TEMPLATE);
   const [designNum, setDesignNum] = useState(2);
+  const [kawaiiTopBase64, setKawaiiTopBase64] = useState<string | null>(null);
+  const [kawaiiBottomBase64, setKawaiiBottomBase64] = useState<string | null>(null);
   
   const { toast } = useToast();
+
+  useEffect(() => {
+    const loadKawaii = async () => {
+      try {
+        const t = await fetch('/kawaii_top.png');
+        const b = await fetch('/kawaii_bottom.png');
+        const r1 = new FileReader(), r2 = new FileReader();
+        r1.onloadend = () => setKawaiiTopBase64(r1.result as string);
+        r1.readAsDataURL(await t.blob());
+        r2.onloadend = () => setKawaiiBottomBase64(r2.result as string);
+        r2.readAsDataURL(await b.blob());
+      } catch (e) {}
+    };
+    loadKawaii();
+  }, []);
 
   useEffect(() => {
     const savedTemplate = localStorage.getItem('marksheet_template');
@@ -205,6 +222,81 @@ export default function MarksheetProHome() {
     const classStudents = students.filter(s => (s.class || "").toUpperCase() === className.toUpperCase());
     if (classStudents.length === 0) return;
     
+    const percentageErrors: string[] = [];
+    const marksOverflow: string[] = [];
+    const practicalErrors: string[] = [];
+
+    for (const student of classStudents) {
+      const studentGrades = getFilteredGrades(student);
+      if (studentGrades.length === 0) continue;
+      
+      const termMax = getMaxMarksPerTerm(student.gradeLevel);
+      const maxTheory = getMaxTheoryMarks(student.gradeLevel);
+      const maxPractical = getMaxPracticalMarks(student.gradeLevel);
+      const gradeNum = parseInt(student.gradeLevel);
+      const totalMaxPerSubject = termMax * 4;
+      const totalObtained = studentGrades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+      const totalPossible = studentGrades.length * totalMaxPerSubject;
+      const percentage = parseFloat(((totalObtained / totalPossible) * 100).toFixed(2));
+
+      // Rule 1: Percentage must be 60-90%
+      if (percentage < 60 || percentage > 90) {
+        percentageErrors.push(`${student.name} (${percentage}%)`);
+      }
+
+      // Rule 2 & 4: Check individual term marks limits & practical minimums
+      for (const g of studentGrades) {
+        const terms = ['term1', 'term2', 'term3', 'term4'] as const;
+        for (const t of terms) {
+          const detail = g.details?.[t];
+          if (detail) {
+            // Check theory exceeds max
+            let currentMaxTheory = maxTheory;
+            // Rule: For Class 6-8, if there's no practical, theory can be up to 50
+            if (gradeNum >= 6 && gradeNum <= 8 && detail.practical === 0) {
+              currentMaxTheory = 50;
+            }
+            
+            if (detail.theory > currentMaxTheory) {
+              marksOverflow.push(`${student.name}: ${(g as any).subjectName || g.subject} ${t} theory=${detail.theory} (max ${currentMaxTheory})`);
+            }
+            // Check practical exceeds max
+            if (detail.practical > maxPractical) {
+              marksOverflow.push(`${student.name}: ${(g as any).subjectName || g.subject} ${t} practical=${detail.practical} (max ${maxPractical})`);
+            }
+            // Check practical minimums: Class 1-8 > 5, Class 9+ >= 20
+            if (maxPractical > 0 && detail.practical > 0) {
+              if (gradeNum >= 1 && gradeNum <= 8 && detail.practical <= 5) {
+                practicalErrors.push(`${student.name}: ${(g as any).subjectName || g.subject} ${t} practical=${detail.practical} (must be >5)`);
+              } else if (gradeNum >= 9 && detail.practical < 20) {
+                practicalErrors.push(`${student.name}: ${(g as any).subjectName || g.subject} ${t} practical=${detail.practical} (must be ≥20)`);
+              }
+            }
+          } else {
+            // No details, check total term marks against max
+            if ((g as any)[t] > termMax) {
+              marksOverflow.push(`${student.name}: ${(g as any).subjectName || g.subject} ${t}=${(g as any)[t]} (max ${termMax})`);
+            }
+          }
+        }
+      }
+    }
+
+    const allErrors = [...percentageErrors.map(e => `% Range: ${e}`), ...marksOverflow.slice(0, 3), ...practicalErrors.slice(0, 3)];
+    if (allErrors.length > 0) {
+      const totalIssues = percentageErrors.length + marksOverflow.length + practicalErrors.length;
+      const details = allErrors.slice(0, 4).join(' | ');
+      const more = totalIssues > 4 ? ` (+${totalIssues - 4} more)` : '';
+      
+      toast({
+        title: `⚠️ Validation Failed — ${totalIssues} Issue(s)`,
+        description: `${details}${more}`,
+        variant: "destructive",
+        duration: 10000
+      });
+      return;
+    }
+
     setIsGenerating(designNum);
     await new Promise(resolve => setTimeout(resolve, 800));
 
@@ -220,12 +312,10 @@ export default function MarksheetProHome() {
     const GAP_MM = 6;
 
     const drawSecurityPattern = (doc: jspdf, schoolName: string = "") => {
-      // Full Page Cream Background for Design 3
       if (designNum === 3) {
+        // Full Page Cream Background
         doc.setFillColor('#fffbeb'); 
         doc.rect(0, 0, WIDTH, HEIGHT, 'F');
-        
-        // Diagonal School Name Pattern
         doc.saveGraphicsState();
         try {
           // @ts-ignore
@@ -234,22 +324,24 @@ export default function MarksheetProHome() {
           doc.setTextColor('#E0E0E0');
           doc.setFontSize(9);
           doc.setFont("times", "bold");
-          
           const text = (schoolName || "OFFICIAL REPORT CARD").toUpperCase();
-          const stepX = 70;
-          const stepY = 15;
-          
+          const stepX = 70; const stepY = 15;
           for (let y = MARGIN; y < HEIGHT - MARGIN; y += stepY) {
             for (let x = -30; x < WIDTH + 30; x += stepX) {
-              // Alternate offset for staggered look
               const offsetX = (Math.floor(y / stepY) % 2) * (stepX / 2);
               doc.text(text, x + offsetX, y, { angle: 0 });
             }
           }
-        } catch (e) {
-          console.error("GState error", e);
-        }
+        } catch (e) { console.error("GState error", e); }
         doc.restoreGraphicsState();
+      } else if (designNum === 4) {
+        // Playful soft pink background
+        doc.setFillColor('#FFF3F8');
+        doc.rect(0, 0, WIDTH, HEIGHT, 'F');
+        // Border: 2mm pink
+        doc.setDrawColor('#F8BBD0');
+        doc.setLineWidth(3);
+        doc.rect(5, 5, WIDTH - 10, HEIGHT - 10);
       } else {
         // Classic Micro-dots for other designs
         doc.setFillColor('#E8E8E8');
@@ -258,6 +350,208 @@ export default function MarksheetProHome() {
             doc.circle(x, y, 0.12, 'F');
           }
         }
+      }
+    };
+
+    const drawFrontPagePlayful = (doc: jspdf, student: Student, rank: number) => {
+      const getOrdinal = (n: number) => {
+        const s = ["th", "st", "nd", "rd"]; const v = n % 100;
+        return n + (s[(v - 20) % 10] || s[v] || s[0]);
+      };
+      const studentGrades = getFilteredGrades(student);
+      const termMax = getMaxMarksPerTerm(student.gradeLevel);
+      const totalMaxPerSubject = termMax * 4;
+      const totalObtained = studentGrades.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
+      const totalPossible = studentGrades.length * totalMaxPerSubject;
+      const percentage = parseFloat(((totalObtained / totalPossible) * 100).toFixed(2));
+      const finalGrade = percentage >= 91 ? "A+" : percentage >= 81 ? "A" : percentage >= 71 ? "B" : percentage >= 61 ? "C" : "D";
+      const currentSchoolInfo = SCHOOLS[student.schoolCode] || SCHOOLS["1"];
+      const sLogo = currentSchoolInfo.logoColor || currentSchoolInfo.logo;
+
+      drawSecurityPattern(doc, currentSchoolInfo.name);
+
+      // Central Transparent Logo Watermark for Design 4
+      if (sLogo) {
+        doc.saveGraphicsState();
+        try {
+          // @ts-ignore
+          const gstate = new doc.GState({ opacity: 0.08 });
+          doc.setGState(gstate);
+          const wmSize = 140;
+          doc.addImage(sLogo, 'PNG', (WIDTH - wmSize) / 2, (HEIGHT - wmSize) / 2, wmSize, wmSize);
+        } catch (e) {}
+        doc.restoreGraphicsState();
+      }
+
+      // ── Kawaii Top Banner ──
+      const bannerH = 26;
+      if (kawaiiTopBase64) {
+        doc.addImage(kawaiiTopBase64, 'PNG', 0, 0, WIDTH, 35);
+      }
+      
+      // School name on banner
+      doc.setFont("helvetica", "bold"); doc.setFontSize(22);
+      doc.setTextColor('#E91E63');
+      doc.text(currentSchoolInfo.name, WIDTH / 2, 22, { align: "center" });
+      doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor('#880E4F');
+      let tY = 28;
+      if (currentSchoolInfo.tagline) { doc.text(currentSchoolInfo.tagline, WIDTH / 2, tY, { align: "center" }); tY += 5; }
+      doc.text(`📞 ${currentSchoolInfo.contact}  |  ✉ ${currentSchoolInfo.email}`, WIDTH / 2, tY, { align: "center" });
+
+      if (sLogo) {
+        doc.addImage(sLogo, 'PNG', MARGIN + 5, 8, 22, 22);
+      }
+
+      // ── "PROGRESS REPORT" Title ──
+      let cY = Math.max(tY + 10, bannerH + 12);
+      doc.setFillColor('#FFCDD2'); doc.setDrawColor('#F48FB1'); doc.setLineWidth(0.6);
+      (doc as any).roundedRect(TABLE_X, cY, TABLE_WIDTH, 14, 4, 4, 'FD');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor('#C2185B');
+      doc.text("⭐ PROGRESS REPORT CARD (2025-26) ⭐", WIDTH / 2, cY + 9, { align: "center" });
+
+      // ── Student Profile Card ──
+      cY += 14;
+      doc.setFillColor('#FFF3E0'); doc.setDrawColor('#FF9F43'); doc.setLineWidth(0.8);
+      (doc as any).roundedRect(TABLE_X, cY, TABLE_WIDTH, 36, 4, 4, 'FD');
+      doc.setFillColor('#FF9F43');
+      (doc as any).roundedRect(TABLE_X, cY, TABLE_WIDTH, 9, 4, 4, 'F');
+      doc.rect(TABLE_X, cY + 5, TABLE_WIDTH, 4, 'F');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor('#FFFFFF');
+      doc.text("👤  STUDENT PROFILE", TABLE_X + 5, cY + 7);
+
+      const formatDate = (dateStr: string) => {
+        if (!dateStr || dateStr === "N/A" || dateStr.trim() === "") return "XX/XX/XXXX";
+        return formatDateToIndian(dateStr);
+      };
+      cY += 11;
+      const profileRows = [
+        { l: "NAME:", v: student.name.toUpperCase(), l2: "CLASS/ROLL:", v2: `${student.class.toUpperCase()} / ${student.rollNo}` },
+        { l: "FATHER:", v: student.fathersName.toUpperCase(), l2: "D.O.B:", v2: formatDate(student.dob) },
+        { l: "MOTHER:", v: student.mothersName.toUpperCase(), l2: "SR NO:", v2: student.srNo }
+      ];
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      profileRows.forEach((row, idx) => {
+        doc.setTextColor('#E65100'); doc.text(row.l, TABLE_X + 4, cY + (idx * 8) + 5);
+        doc.setTextColor('#333333'); doc.text(row.v, TABLE_X + 30, cY + (idx * 8) + 5);
+        doc.setTextColor('#E65100'); doc.text(row.l2, TABLE_X + 110, cY + (idx * 8) + 5);
+        doc.setTextColor('#333333'); doc.text(row.v2, TABLE_X + 130, cY + (idx * 8) + 5);
+      });
+      cY += 26;
+      doc.setFontSize(10); doc.setTextColor('#E65100'); doc.text("ADDRESS:", TABLE_X + 4, cY + 2);
+      doc.setTextColor('#333333'); doc.text(student.address?.toUpperCase() || "N/A", TABLE_X + 30, cY + 2);
+
+      // ── Marks Table ──
+      cY += 8;
+      const subColW = TABLE_WIDTH * 0.26; const mColW = TABLE_WIDTH * 0.155;
+      doc.setFillColor('#6BCB77'); doc.setDrawColor('#6BCB77');
+      (doc as any).roundedRect(TABLE_X, cY, TABLE_WIDTH, 10, 3, 3, 'F');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor('#FFFFFF');
+      doc.text("📚  ACADEMIC PERFORMANCE", TABLE_X + 5, cY + 7);
+      cY += 10;
+
+      // Column headers
+      doc.setFillColor('#E8F5E9'); doc.setDrawColor('#6BCB77'); doc.setLineWidth(0.4);
+      doc.rect(TABLE_X, cY, TABLE_WIDTH, ROW_HEIGHT - 1);
+      doc.setTextColor('#1B5E20'); doc.setFontSize(11);
+      const maxMarksPerTerm = getMaxMarksPerTerm(student.gradeLevel);
+      doc.text("Subject", TABLE_X + 4, cY + 5.5);
+      ['T1','T2','T3','T4'].forEach((t, i) => doc.text(`${t}(${maxMarksPerTerm})`, TABLE_X + subColW + mColW * i + mColW / 2, cY + 5.5, { align: "center" }));
+      doc.text(`Total`, TABLE_X + subColW + mColW * 4 + (TABLE_WIDTH - subColW - mColW * 4) / 2, cY + 5.5, { align: "center" });
+      cY += ROW_HEIGHT - 1;
+
+      const rowColors = ['#FFF9C4','#E3F2FD','#FCE4EC','#E8F5E9','#F3E5F5','#FBE9E7','#E0F7FA','#FFF3E0','#FAFAFA'];
+      let t1Sum = 0, t2Sum = 0, t3Sum = 0, t4Sum = 0;
+      studentGrades.forEach((g, idx) => {
+        t1Sum += g.term1; t2Sum += g.term2; t3Sum += g.term3; t4Sum += g.term4;
+        doc.setFillColor(rowColors[idx % rowColors.length]);
+        doc.setDrawColor('#CCCCCC'); doc.setLineWidth(0.3);
+        doc.rect(TABLE_X, cY, TABLE_WIDTH, ROW_HEIGHT - 0.5, 'FD');
+        doc.line(TABLE_X + subColW, cY, TABLE_X + subColW, cY + ROW_HEIGHT - 0.5);
+        [1,2,3,4].forEach(i => doc.line(TABLE_X + subColW + mColW * i, cY, TABLE_X + subColW + mColW * i, cY + ROW_HEIGHT - 0.5));
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor('#333333');
+        doc.text((g as any).subjectName, TABLE_X + 4, cY + 5.5);
+        const terms = ['term1','term2','term3','term4'];
+        terms.forEach((t, i) => {
+          const val = g.details?.[t as keyof typeof g.details];
+          const mark = (val && val.practical > 0) ? `${val.theory}+${val.practical}` : (g as any)[t].toString();
+          doc.text(mark, TABLE_X + subColW + mColW * i + mColW / 2, cY + 5.5, { align: "center" });
+        });
+        doc.setTextColor('#1565C0');
+        doc.text((g.term1+g.term2+g.term3+g.term4).toString(), TABLE_X + subColW + mColW * 4 + (TABLE_WIDTH - subColW - mColW*4)/2, cY + 5.5, { align: "center" });
+        cY += ROW_HEIGHT - 0.5;
+      });
+
+      // Totals row
+      doc.setFillColor('#4D96FF'); doc.setDrawColor('#4D96FF');
+      doc.rect(TABLE_X, cY, TABLE_WIDTH, ROW_HEIGHT, 'F');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor('#FFFFFF');
+      doc.text("TOTAL MARKS", TABLE_X + 4, cY + 6);
+      [t1Sum, t2Sum, t3Sum, t4Sum].forEach((s, i) => doc.text(s.toString(), TABLE_X + subColW + mColW * i + mColW / 2, cY + 6, { align: "center" }));
+      doc.text(totalObtained.toString(), TABLE_X + subColW + mColW * 4 + (TABLE_WIDTH - subColW - mColW*4)/2, cY + 6, { align: "center" });
+      cY += ROW_HEIGHT + 5;
+
+      // ── Summary Banner ──
+      const summaryH = 20;
+      doc.setFillColor('#FF6BD6'); doc.setDrawColor('#FF6BD6'); doc.setLineWidth(0.5);
+      (doc as any).roundedRect(TABLE_X, cY, TABLE_WIDTH, summaryH, 4, 4, 'F');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor('#FFFFFF');
+      const sumBoxW = TABLE_WIDTH / 4;
+      const summaryLabels = ["OBTAINED", "PERCENTAGE", "GRADE", "CLASS RANK"];
+      const summaryVals = [`${totalObtained}/${totalPossible}`, `${percentage}%`, finalGrade, rank <= 3 ? getOrdinal(rank) : "-"];
+      summaryLabels.forEach((lbl, i) => {
+        doc.text(lbl, TABLE_X + sumBoxW * i + sumBoxW / 2, cY + 6, { align: "center" });
+        doc.setFontSize(15);
+        doc.text(summaryVals[i], TABLE_X + sumBoxW * i + sumBoxW / 2, cY + 15, { align: "center" });
+        doc.setFontSize(11);
+        if (i < 3) { doc.setDrawColor('#FFFFFF'); doc.setLineWidth(0.5); doc.line(TABLE_X + sumBoxW * (i+1), cY, TABLE_X + sumBoxW * (i+1), cY + summaryH); }
+      });
+      cY += summaryH + 5;
+
+      // ── Co-Scholastic & Attendance ──
+      const halfW4 = (TABLE_WIDTH / 2) - 3;
+      doc.setFillColor('#FCE4EC'); doc.setDrawColor('#E91E63'); doc.setLineWidth(0.5);
+      (doc as any).roundedRect(TABLE_X, cY, halfW4, 9, 3, 3, 'F');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor('#880E4F');
+      doc.text("🎯 CO-SCHOLASTIC", TABLE_X + halfW4/2, cY + 6.5, { align: "center" });
+      cY += 9;
+      doc.setDrawColor('#F48FB1'); doc.setLineWidth(0.3);
+      doc.rect(TABLE_X, cY, halfW4, ROW_HEIGHT * 4);
+      const activities = ["P.T.", "Discipline", "Art & Craft", "General Activity"];
+      const csData = student.coScholastic || {};
+      const values = [csData.pt, csData.discipline, csData.art, csData.yoga];
+      activities.forEach((act, idx) => {
+        const rowY = cY + ROW_HEIGHT * idx;
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor('#444444');
+        doc.text(act, TABLE_X + 3, rowY + 5.5);
+        doc.setTextColor('#E91E63');
+        doc.text(values[idx] || "A", TABLE_X + halfW4 - 5, rowY + 5.5, { align: "right" });
+        if (idx < 3) doc.line(TABLE_X, rowY + ROW_HEIGHT, TABLE_X + halfW4, rowY + ROW_HEIGHT);
+      });
+
+      const attX4 = TABLE_X + halfW4 + 6;
+      const attTopY4 = cY - 9;
+      doc.setFillColor('#E3F2FD'); doc.setDrawColor('#1976D2');
+      (doc as any).roundedRect(attX4, attTopY4, halfW4, 9, 3, 3, 'F');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor('#0D47A1');
+      doc.text("📅 ATTENDANCE", attX4 + halfW4/2, attTopY4 + 6.5, { align: "center" });
+      doc.setDrawColor('#90CAF9'); doc.setLineWidth(0.3);
+      doc.rect(attX4, cY, halfW4, ROW_HEIGHT * 3);
+      const attData = [
+        { l: "Total Days", v: student.attendance?.totalDays || 0 },
+        { l: "Present Days", v: student.attendance?.presentDays || 0 },
+        { l: "Attendance %", v: `${((student.attendance?.presentDays || 0) / (student.attendance?.totalDays || 1) * 100).toFixed(1)}%` }
+      ];
+      attData.forEach((row, idx) => {
+        const rowY = cY + ROW_HEIGHT * idx;
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor('#444444');
+        doc.text(row.l, attX4 + 3, rowY + 5.5);
+        doc.setTextColor('#1565C0');
+        doc.text(row.v.toString(), attX4 + halfW4 - 5, rowY + 5.5, { align: "right" });
+        if (idx < 2) doc.line(attX4, rowY + ROW_HEIGHT, attX4 + halfW4, rowY + ROW_HEIGHT);
+      });
+      
+      if (kawaiiBottomBase64) {
+        doc.addImage(kawaiiBottomBase64, 'PNG', 10, HEIGHT - 45, WIDTH - 20, 40);
       }
     };
 
@@ -280,6 +574,7 @@ export default function MarksheetProHome() {
                        percentage >= 71 ? "B" : 
                        percentage >= 61 ? "C" : "D";
 
+      if (designNum === 4) { drawFrontPagePlayful(doc, student, rank); return; }
       const currentSchoolInfo = SCHOOLS[student.schoolCode] || SCHOOLS["1"];
       drawSecurityPattern(doc, currentSchoolInfo.name);
       const sLogo = designNum === 3 ? (currentSchoolInfo.logoColor || currentSchoolInfo.logo) : (currentSchoolInfo.logo || (window as any)._currentLogo || logo);
@@ -290,7 +585,8 @@ export default function MarksheetProHome() {
           // @ts-ignore
           const gstate = new doc.GState({ opacity: 0.15 });
           doc.setGState(gstate);
-          doc.addImage(sLogo, 'PNG', (WIDTH - 110) / 2, (HEIGHT - 110) / 2, 110, 110);
+          const wmSize = 140; 
+          doc.addImage(sLogo, 'PNG', (WIDTH - wmSize) / 2, (HEIGHT - wmSize) / 2, wmSize, wmSize);
         } catch (e) {}
         doc.restoreGraphicsState();
       }
@@ -365,10 +661,9 @@ export default function MarksheetProHome() {
        
       const headingY = baseTopY + 37 + 2;
       doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
-      doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
       doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
       doc.setLineWidth(0.5);
-      doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT);
+      doc.rect(TABLE_X, headingY, TABLE_WIDTH, HEADER_HEIGHT, 'FD');
       doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.setFontSize(20);
       doc.text("PROGRESS REPORT CARD (2025-26)", WIDTH / 2, headingY + 7, { align: "center" });
@@ -447,10 +742,10 @@ export default function MarksheetProHome() {
       currentY += GAP_MM;
       const subCol = TABLE_WIDTH * 0.23; const mCol = TABLE_WIDTH * 0.16;
       doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
-      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
-      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
       doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
-      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT);
+      doc.setLineWidth(0.5);
+      doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'FD');
       
       doc.text("Subjects", TABLE_X + 5, currentY + 7);
       const maxMarksPerTerm = getMaxMarksPerTerm(student.gradeLevel);
@@ -491,19 +786,28 @@ export default function MarksheetProHome() {
       });
 
       doc.setFont("times", "bold");
-      doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
+      if (designNum === 3) {
+        doc.setFillColor('#fff9c4'); // Highlight yellow fill
+        doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT, 'FD');
+        doc.setTextColor('#1e3a8a');
+      } else {
+        doc.rect(TABLE_X, currentY, TABLE_WIDTH, ROW_HEIGHT);
+      }
+      
       doc.line(TABLE_X + subCol, currentY, TABLE_X + subCol, currentY + ROW_HEIGHT);
       [1,2,3,4].forEach(i => doc.line(TABLE_X + subCol + (mCol*i), currentY, TABLE_X + subCol + (mCol*i), currentY + ROW_HEIGHT));
       
       doc.text("TOTAL MARKS", TABLE_X + 5, currentY + 6);
       [t1Sum, t2Sum, t3Sum, t4Sum].forEach((sum, i) => doc.text(sum.toString(), TABLE_X + subCol + (mCol*(i+0.5)), currentY + 6, { align: "center" }));
       doc.text(totalObtained.toString(), TABLE_X + subCol + (mCol*4) + (TABLE_WIDTH*0.13*0.5), currentY + 6, { align: "center" });
+      doc.setTextColor('#000000'); // Reset text color
       currentY += ROW_HEIGHT;
 
       currentY += GAP_MM;
       doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC');
-      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
       doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+      doc.setLineWidth(0.3);
+      doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT, 'FD');
       doc.rect(TABLE_X, currentY, TABLE_WIDTH, HEADER_HEIGHT + ROW_HEIGHT);
       doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       const sumW = TABLE_WIDTH / 4;
@@ -520,8 +824,10 @@ export default function MarksheetProHome() {
       currentY += HEADER_HEIGHT + ROW_HEIGHT + GAP_MM;
       const halfW = (TABLE_WIDTH / 2) - 3;
       
-      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); 
       doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+      doc.setLineWidth(0.3);
+      doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT, 'FD');
       doc.rect(TABLE_X, currentY, halfW, HEADER_HEIGHT + (ROW_HEIGHT * 4));
       doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.line(TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT, TABLE_X + (halfW * 0.7), currentY + HEADER_HEIGHT + (ROW_HEIGHT * 4));
@@ -565,7 +871,130 @@ export default function MarksheetProHome() {
       });
     };
 
+    const drawBackPagePlayful = (doc: jspdf, student: Student) => {
+      drawSecurityPattern(doc, SCHOOLS[student.schoolCode]?.name || "");
+      const currentSchoolInfo = SCHOOLS[student.schoolCode] || SCHOOLS["1"];
+      const sLogo = currentSchoolInfo.logoColor || currentSchoolInfo.logo;
+
+      // Central Transparent Logo Watermark for Design 4 (Back Page)
+      if (sLogo) {
+        doc.saveGraphicsState();
+        try {
+          // @ts-ignore
+          const gstate = new doc.GState({ opacity: 0.08 });
+          doc.setGState(gstate);
+          const wmSize = 140;
+          doc.addImage(sLogo, 'PNG', (WIDTH - wmSize) / 2, (HEIGHT - wmSize) / 2, wmSize, wmSize);
+        } catch (e) {}
+        doc.restoreGraphicsState();
+      }
+
+      // ── Kawaii Top Banner ──
+      const bannerH = 26;
+      if (kawaiiTopBase64) {
+        doc.addImage(kawaiiTopBase64, 'PNG', 0, 0, WIDTH, 35);
+      }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(22); doc.setTextColor('#E91E63');
+      doc.text(currentSchoolInfo.name, WIDTH / 2, 22, { align: "center" });
+      doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor('#880E4F');
+      let tY = 28;
+      if (currentSchoolInfo.tagline) { doc.text(currentSchoolInfo.tagline, WIDTH / 2, tY, { align: "center" }); tY += 5; }
+      doc.text(`📞 ${currentSchoolInfo.contact}  |  ✉ ${currentSchoolInfo.email}`, WIDTH / 2, tY, { align: "center" });
+      if (sLogo) doc.addImage(sLogo, 'PNG', MARGIN + 5, 8, 22, 22);
+
+      let bY = Math.max(tY + 10, bannerH + 12);
+
+      // Result & Promotion
+      doc.setFillColor('#FFCDD2'); doc.setDrawColor('#F48FB1');
+      (doc as any).roundedRect(TABLE_X, bY, TABLE_WIDTH, 12, 3, 3, 'FD');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor('#C2185B');
+      doc.text("🎓  RESULT & PROMOTION", TABLE_X + 5, bY + 8);
+      bY += 12;
+      doc.setFillColor('#F1F8E9'); doc.setDrawColor('#AED581'); doc.setLineWidth(0.5);
+      (doc as any).roundedRect(TABLE_X, bY, TABLE_WIDTH, 22, 3, 3, 'FD');
+      doc.setFontSize(15); doc.setFont("helvetica", "bold"); doc.setTextColor('#2E7D32');
+      const nextClass4 = (cls: string) => {
+        const order = ['NUR', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+        const idx = order.indexOf(cls.toUpperCase());
+        return (idx !== -1 && idx < order.length - 1) ? order[idx + 1] : "__________";
+      };
+      doc.text("Result:  ✅ PASS", TABLE_X + 10, bY + 9);
+      doc.text(`Promoted to Class:  ${nextClass4(student.class)}`, TABLE_X + 10, bY + 18);
+      bY += 27;
+
+      // Grading System
+      doc.setFillColor('#FFCDD2'); doc.setDrawColor('#F48FB1');
+      (doc as any).roundedRect(TABLE_X, bY, TABLE_WIDTH, 12, 3, 3, 'FD');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor('#C2185B');
+      doc.text("📊  GRADING SYSTEM", TABLE_X + 5, bY + 8);
+      bY += 12;
+      const gradingRows = [
+        { r: "91-100", g: "A+", rm: "Outstanding", c: '#FF6B6B' },
+        { r: "81-90", g: "A", rm: "Excellent", c: '#FF9F43' },
+        { r: "71-80", g: "B", rm: "Very Good", c: '#6BCB77' },
+        { r: "61-70", g: "C", rm: "Good", c: '#4D96FF' },
+        { r: "Below 60", g: "D", rm: "Needs Improvement", c: '#a29bfe' }
+      ];
+      gradingRows.forEach((g, idx) => {
+        doc.setFillColor(g.c); doc.rect(TABLE_X, bY + ROW_HEIGHT * idx, TABLE_WIDTH, ROW_HEIGHT, 'F');
+        doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor('#FFFFFF');
+        doc.text(g.r, TABLE_X + 10, bY + ROW_HEIGHT * idx + 6);
+        doc.text(g.g, TABLE_X + TABLE_WIDTH * 0.5, bY + ROW_HEIGHT * idx + 6, { align: "center" });
+        doc.setFont("helvetica", "bolditalic");
+        doc.text(g.rm, TABLE_X + TABLE_WIDTH - 10, bY + ROW_HEIGHT * idx + 6, { align: "right" });
+      });
+      bY += ROW_HEIGHT * 5 + 5;
+
+      // Assessment Scheme
+      doc.setFillColor('#FFCDD2'); doc.setDrawColor('#F48FB1');
+      (doc as any).roundedRect(TABLE_X, bY, TABLE_WIDTH, 12, 3, 3, 'FD');
+      doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor('#C2185B');
+      doc.text("📋  ASSESSMENT SCHEME & SCHOOL RULES", TABLE_X + 5, bY + 8);
+      bY += 12;
+      doc.setFillColor('#E3F2FD'); doc.setDrawColor('#90CAF9'); doc.setLineWidth(0.5);
+      (doc as any).roundedRect(TABLE_X, bY, TABLE_WIDTH, 65, 3, 3, 'FD');
+      const _termMax4 = getMaxMarksPerTerm(student.gradeLevel);
+      const theoryMax4 = getMaxTheoryMarks(student.gradeLevel);
+      const practicalMax4 = getMaxPracticalMarks(student.gradeLevel);
+      let scheme4 = `1. Each subject carries a maximum of ${_termMax4} marks per term (Total ${_termMax4 * 4})."`;
+      if (practicalMax4 > 0) scheme4 = `1. Assessment: Theory (${theoryMax4}) + Practical (${practicalMax4}) = ${_termMax4} per term.`;
+      const rules4 = [
+        scheme4,
+        "2. Students must maintain 75% attendance to appear in final exams.",
+        "3. Punctuality and discipline are mandatory for all students.",
+        "4. Parents are requested to attend Parent-Teacher Meetings regularly.",
+        "5. Report card should be signed and returned within 3 days.",
+        "6. Students must wear proper school uniform daily.",
+        "7. Report card is valid only with the Principal's Signature and School Stamp."
+      ];
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor('#1565C0');
+      rules4.forEach((rule, idx) => doc.text(rule, TABLE_X + 5, bY + 10 + idx * 8));
+      bY += 70;
+
+      // Signature Slots
+      const signY4 = HEIGHT - MARGIN - 38;
+      if (kawaiiBottomBase64) {
+        doc.addImage(kawaiiBottomBase64, 'PNG', 10, HEIGHT - 45, WIDTH - 20, 40);
+      }
+      
+      const slotW4 = (TABLE_WIDTH / 3) - 4;
+      const slots4 = [
+        { l: "Teacher's Signature", x: TABLE_X, img: teacherSign, c: '#FF9F43' },
+        { l: "Parent's Signature", x: TABLE_X + slotW4 + 6, img: null, c: '#6BCB77' },
+        { l: "Principal's Signature", x: TABLE_X + (slotW4 * 2) + 12, img: principalSign, c: '#4D96FF' }
+      ];
+      slots4.forEach(slot => {
+        doc.setTextColor(slot.c); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+        doc.text(slot.l, slot.x + slotW4 / 2, signY4 - 2, { align: "center" });
+        doc.setDrawColor(slot.c); doc.setLineWidth(0.6);
+        doc.setFillColor('#FFFFFF');
+        (doc as any).roundedRect(slot.x, signY4, slotW4, 25, 2, 2, 'FD');
+        if (slot.img) doc.addImage(slot.img, 'PNG', slot.x + 5, signY4 + 8, slotW4 - 10, 14);
+      });
+    };
+
     const drawBackPage = (doc: jspdf, student: Student) => {
+      if (designNum === 4) { drawBackPagePlayful(doc, student); return; }
       drawSecurityPattern(doc, SCHOOLS[student.schoolCode]?.name || "");
       const sLogo = (window as any)._currentLogo || logo;
       if (designNum === 3 && sLogo) {
@@ -574,7 +1003,8 @@ export default function MarksheetProHome() {
           // @ts-ignore
           const gstate = new doc.GState({ opacity: 0.1 });
           doc.setGState(gstate);
-          doc.addImage(sLogo, 'PNG', (WIDTH - 120) / 2, (HEIGHT - 120) / 2, 120, 120);
+          const wmSize = 140;
+          doc.addImage(sLogo, 'PNG', (WIDTH - wmSize) / 2, (HEIGHT - wmSize) / 2, wmSize, wmSize);
         } catch (e) {}
         doc.restoreGraphicsState();
       }
@@ -630,8 +1060,10 @@ export default function MarksheetProHome() {
       
       backY += HEADER_HEIGHT + 25 + (GAP_MM * 2);
 
-      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); 
       doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+      doc.setLineWidth(0.3);
+      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'FD');
       doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + (ROW_HEIGHT * 5));
       doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       
@@ -659,8 +1091,10 @@ export default function MarksheetProHome() {
       backY += HEADER_HEIGHT + (ROW_HEIGHT * 5);
 
       backY += GAP_MM * 2;
-      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'F');
+      doc.setFillColor(designNum === 2 ? '#000000' : designNum === 3 ? '#1e3a8a' : '#DCDCDC'); 
       doc.setDrawColor(designNum === 3 ? '#f59e0b' : '#000000');
+      doc.setLineWidth(0.3);
+      doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT, 'FD');
       doc.rect(TABLE_X, backY, TABLE_WIDTH, HEADER_HEIGHT + 65);
       doc.setTextColor(designNum === 2 || designNum === 3 ? '#FFFFFF' : '#000000');
       doc.setFont("times", "bold"); doc.text("ASSESSMENT SCHEME & SCHOOL RULES", WIDTH / 2, backY + 7, { align: "center" });
@@ -727,19 +1161,21 @@ export default function MarksheetProHome() {
       if (schoolStudents.length === 0) return;
       
       const school = SCHOOLS[schoolCode] || SCHOOLS["1"];
-      const sLogo = designNum === 3 ? (school.logoColor || school.logo) : (school.logo || logo);
+      const sLogo = (designNum === 3 || designNum === 4) ? (school.logoColor || school.logo) : (school.logo || logo);
       
       const allStudentTotals = schoolStudents.map(s => {
         const gs = getFilteredGrades(s);
         return gs.reduce((sum, g) => sum + g.term1 + g.term2 + g.term3 + g.term4, 0);
       });
-      const sortedTotals = [...allStudentTotals].sort((a, b) => b - a);
+      // Dense ranking: unique sorted totals give the rank positions
+      const uniqueSortedTotals = [...new Set(allStudentTotals)].sort((a, b) => b - a);
 
       const docFront = new jspdf("p", "mm", "a4");
       for (let i = 0; i < schoolStudents.length; i++) {
         if (i > 0) docFront.addPage();
         const currentTotal = allStudentTotals[i];
-        const rank = sortedTotals.indexOf(currentTotal) + 1;
+        // Dense rank: position in unique sorted list + 1
+        const rank = uniqueSortedTotals.indexOf(currentTotal) + 1;
         // Use a wrapper that ensures the correct school context for headers
         const originalSchoolInfo = schoolInfo;
         const originalLogo = logo;
@@ -836,6 +1272,14 @@ export default function MarksheetProHome() {
                       className={`h-8 text-[10px] font-bold uppercase tracking-wider ${designNum === 3 ? 'bg-[#1e3a8a] text-white hover:bg-[#1e3a8a]/90' : ''}`}
                     >
                       Colorful
+                    </Button>
+                    <Button 
+                      variant={designNum === 4 ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => setDesignNum(4)}
+                      className={`h-8 text-[10px] font-bold uppercase tracking-wider ${designNum === 4 ? 'bg-gradient-to-r from-pink-500 via-yellow-400 to-blue-500 text-white border-0' : ''}`}
+                    >
+                      🌈 Playful
                     </Button>
                   </div>
 

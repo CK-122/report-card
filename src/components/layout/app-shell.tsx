@@ -19,7 +19,8 @@ import {
   FileText,
   Users,
   FileSearch,
-  Download
+  Download,
+  Book
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -68,6 +69,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Link href="/export" className="flex items-center gap-3">
                     <Download className="size-5" />
                     <span className="font-bold uppercase text-[10px] tracking-widest">Export</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/booklist"}>
+                  <Link href="/booklist" className="flex items-center gap-3">
+                    <Book className="size-5" />
+                    <span className="font-bold uppercase text-[10px] tracking-widest">Booklist</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

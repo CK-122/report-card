@@ -43,6 +43,14 @@ export interface Student {
   };
 }
 
+export interface Book {
+  id: string;
+  class: string;
+  title: string;
+  publisher: string;
+  price: number | string;
+}
+
 import { 
   LOGO_SCHOOL_1, 
   LOGO_SCHOOL_2, 
